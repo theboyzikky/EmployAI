@@ -1,0 +1,85 @@
+# ---------------------------------------------------------------
+# Secrets — never commit. Only .env.example (blank values) is tracked.
+# ---------------------------------------------------------------
+.env
+.env.*
+*.env
+!.env.example
+.envrc
+
+# Private keys, certificates, keystores
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
+id_rsa*
+id_ed25519*
+*.secret
+*.secrets
+secrets/
+**/secrets.json
+**/*-secret*.json
+**/*service-account*.json
+
+# NEAR credentials (near-cli-rs keeps its own in the user home folder;
+# these catch any copy made inside the repo)
+**/credentials/
+**/near-credentials/
+**/.near-credentials/
+neardev/
+**/*.testnet.json
+**/*.near.json
+**/seed-phrase*
+**/*.seed
+
+# Hackathon submission payload contains personal data (HACKATHON.md)
+submission-payload*.json
+
+# Supabase local state (migrations and seed SQL stay tracked)
+supabase/.branches/
+supabase/.temp/
+.supabase/
+
+# Hosting CLIs
+.vercel/
+.railway/
+.render/
+
+# ---------------------------------------------------------------
+# Dependencies / builds
+# ---------------------------------------------------------------
+node_modules/
+.pnpm-store/
+.next/
+.turbo/
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+# Rust / NEAR contract build output
+target/
+*.wasm
+
+# ---------------------------------------------------------------
+# Logs / OS / editor
+# ---------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Local Claude Code settings (may hold machine-specific permissions)
+.claude/settings.local.json
+
+# Third-party NEAR agent skills (https://github.com/near/agent-skills).
+# Installed locally as development tools; not redistributed with EmployAI.
+# Reinstall with: npx skills add near/agent-skills   (pinned in skills-lock.json)
+.claude/skills/

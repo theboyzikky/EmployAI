@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "skills": {
+    "near-ai-cloud": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-ai-cloud/SKILL.md",
+      "computedHash": "00c15c64c1a5245a16b192c17fe5e61475b69d27355d5d310075101942f72e80",
+      "installMode": "copy"
+    },
+    "near-api-js": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-api-js/SKILL.md",
+      "computedHash": "479324685943b82645f325ee81f66ea3a10ba9eb5a9f33d618e9550b4061b1d0",
+      "installMode": "copy"
+    },
+    "near-cli-rs": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-cli-rs/SKILL.md",
+      "computedHash": "dec2a5dc13ad4ef87ce502995bf3177d1d538659517a591d3c4a3899af049f7e",
+      "installMode": "copy"
+    },
+    "near-contract-audit": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-contract-audit/SKILL.md",
+      "computedHash": "7947acbb8ade8d99edab6a97d6c0604af980d2093f63668ad3790409d2c3481f",
+      "installMode": "copy"
+    },
+    "near-dapp": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-dapp/SKILL.md",
+      "computedHash": "c347367ff7a231dee066b4ed0e6caedc20e147cd10c076fe7d7bc5b7995287e7",
+      "installMode": "copy"
+    },
+    "near-intents": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-intents/SKILL.md",
+      "computedHash": "dd07b96412ea9903ba1737b9ca0b69566eae68f991c808c63376b5a2ebca7203",
+      "installMode": "copy"
+    },
+    "near-kit": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-kit/SKILL.md",
+      "computedHash": "3772474f429ff32d0c5707476d06535e27ac478491036ad585b44d835b676022",
+      "installMode": "copy"
+    },
+    "near-smart-contracts": {
+      "source": "near/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/near-smart-contracts/SKILL.md",
+      "computedHash": "0615674e279d5a509a648ff0e4e03a9cedfb2fb1dda7901ddeaa737903e68eb1",
+      "installMode": "copy"
+    }
+  }
+}

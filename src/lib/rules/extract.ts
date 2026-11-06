@@ -9,9 +9,15 @@ export type ExtractedFact = { field: ProfileFieldKey; value: string; status: "co
 // Unicode-aware word boundaries: JavaScript's \b does not treat "é" as a word character.
 const word = (alts: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alts})(?![\\p{L}\\p{N}])`, "iu");
 
+/** The original (M2) industries, in their original order: matched anywhere in a message. */
 export const INDUSTRY_RULES: Array<[RegExp, string]> = [
   [word("restaurant|café|cafe|coffee shop|takeaway|take-away|bistro|eatery|diner|food truck|canteen|bakery|bar|pub|catering|kitchen"), "Restaurant / food service"],
   [word("salon|barber(?:shop)?|hairdresser|hair stylist|beauty|spa|nail(?:s| bar)?|lashes|makeup studio"), "Salon / beauty services"],
+  // M3.5 · P6: the only new names allowed here, because the professional rule below would otherwise read
+  // their "agency" as a professional-services agency. They are unambiguous on their own.
+  [word("real estate agen(?:t|ts|cy)|estate agen(?:t|ts|cy)|letting agen(?:t|cy)"), "Real estate / property"],
+  [word("travel agen(?:t|cy)|visa agen(?:t|cy)"), "Travel"],
+  [word("digital agency"), "Technology / IT services"],
   [word("consultancy|consulting|agency|accounting|accountant|law firm|lawyer|clinic|dental|tutoring|cleaning (?:company|service)|plumb(?:er|ing)|repair(?:s| shop)?|freelance|photography|gym|fitness studio"), "Professional / local services"],
   [word("logistics|courier|delivery company|transport company|haulage"), "Logistics"],
   [word("factory|manufactur(?:er|ing)|workshop|print shop"), "Manufacturing / production"],
@@ -19,7 +25,55 @@ export const INDUSTRY_RULES: Array<[RegExp, string]> = [
   [word("boutique|online store|online shop|e-?commerce|retail|grocery|supermarket|pharmacy|shop|store|minimart"), "Retail"],
 ];
 
-const CHANNELS: Array<[RegExp, string]> = [
+/**
+ * M3.5 · P6: the other new industries. They count ONLY when the wording identifies them as the
+ * business ("I'm into real estate", "we run a hotel", "our tailoring business"), never when the word
+ * appears in passing ("next to a school", "farm-fresh food", "above a garage", "construction workers").
+ */
+export const IDENTITY_INDUSTRY_RULES: Array<[RegExp, string]> = [
+  [word("real estate|realtors?|property (?:agent|agency|business|company|management|developer|development|sales)|properties|landlord|short[- ]?lets?|rentals? (?:business|company)"), "Real estate / property"],
+  [word("hotel|guest ?house|hostel|airbnb|bed and breakfast|b&b|lodge|serviced apartments?"), "Hospitality / accommodation"],
+  [word("tour operator|tours? company"), "Travel"],
+  [word("software|app development|web design|web development|it services|it support|tech start-?up|saas"), "Technology / IT services"],
+  [word("event planning|events? (?:company|business|planner)|wedding planner|decor(?:ation)? business|party rentals?"), "Events"],
+  [word("tailor(?:ing)?|fashion design(?:er)?|clothing brand|fashion brand|seamstress"), "Fashion / tailoring"],
+  [word("mechanic|car wash|auto (?:repair|parts|shop)|garage|car dealership|vehicle repair"), "Automotive"],
+  [word("farm|farming|poultry|fish farm|agro|agriculture|livestock"), "Agriculture"],
+  [word("construction|builders?|building contractor|electrician|carpent(?:er|ry)|painting company|renovations?"), "Construction / trades"],
+  [word("school|tutor(?:s|ing)?|lessons|academy|training centre|training center|driving school"), "Education / training"],
+];
+
+/** Phrases that say what the business IS: "I run a…", "I'm into…", "we are a…", "our…" (up to the next clause). */
+const IDENTITY_FRAMES = [
+  /\b(?:i|we)\s+(?:run|own|operate|manage|have|started)\s+([^.,;!?]+)/gi,
+  /\b(?:i'?m|i am|we'?re|we are)\s+(?:into|in|an?)\s+([^.,;!?]+)/gi,
+  /\b(?:my|our)\s+([^.,;!?]+)/gi,
+];
+const FRAME_END = /\s+(?:is|are|was|were|and|but|called|named|near|next|to|for|with|at|in|on|above|below|beside|behind|opposite|serving|that|which|who|where|so|because)\b/i;
+
+/** The words that name the business itself, from identity phrases (and a short answer such as "Real estate."). */
+function identityPhrases(text: string): string[] {
+  const out: string[] = [];
+  for (const re of IDENTITY_FRAMES) for (const m of text.matchAll(re)) out.push(m[1].split(FRAME_END)[0]);
+  if (text.trim().split(/\s+/).length <= 5) out.push(text);
+  return out;
+}
+
+/**
+ * The industry a message names: an original industry anywhere in the text (unchanged M2 behaviour), else
+ * a new industry only from wording that identifies the business.
+ */
+export function industryOf(text: string): string | null {
+  const direct = INDUSTRY_RULES.find(([re]) => re.test(text));
+  if (direct) return direct[1];
+  const phrases = identityPhrases(text);
+  return IDENTITY_INDUSTRY_RULES.find(([re]) => phrases.some(p => re.test(p)))?.[1] ?? null;
+}
+
+/** Industry of a phrase already known to describe the business (both lists, original first). */
+export const industryOfIdentity = (phrase: string) => [...INDUSTRY_RULES, ...IDENTITY_INDUSTRY_RULES].find(([re]) => re.test(phrase))?.[1] ?? null;
+
+export const CHANNELS: Array<[RegExp, string]> = [
   [/whats\s?app/i, "WhatsApp"], [/instagram/i, "Instagram"], [/facebook/i, "Facebook"], [/tiktok/i, "TikTok"],
   [/delivery (?:app|platform)s?|uber ?eats|glovo|chowdeck|deliveroo|jumia food|doordash/i, "Delivery apps"],
   [word("in person|in-person|counter|walk-?ins?|in store|in-store|at the shop"), "In person"],
@@ -54,10 +108,10 @@ const PROD_RE = /\b(?:we|i)\s+(?:mainly\s+|mostly\s+|also\s+)?(?:sell|serve|offe
 const PROD_RE2 = /\b(?:our|my)\s+(?:menu|products?|services?)\s+(?:include|includes|are|is)\s+([^.;!?]+)/i;
 /** Where/how it's sold belongs to channels, not products. */
 const PROD_STOP = /\s+(?:at|in|on|from|via|through)\s+(?:the\s+)?(?:counter|shop|store|market|whats\s?app|instagram|phone|website)\b|,?\s+and\s+(?:we\s+|i\s+)?(?:take|accept|get)\s+(?:\w+\s+)?(?:orders|bookings)\b/i;
-const GOAL_RE = /\b(?:i(?:'d| would)? (?:want|like|love|hope)|we(?:'d| would)? (?:want|like|love|hope)|my goal is|our goal is|goal is|help (?:me|us)|i need (?:help|to)|we need to|so that i|so that we)\b/i;
-const PAIN_RE = /\b(run(?:ning)? out|ran out|out of stock|stock-?outs?|problem|struggle|difficult|hard to|too long|takes? (?:up )?(?:hours|ages|time)|forget|missed?|mistakes?|errors?|chasing|no-?shows?|waste|late|slow|overwhelm|manual(?:ly)?|by hand|lose track|losing)\b/i;
-const SUP_RE = /\b(suppliers?|wholesalers?|distributors?|vendors?|(?:buy|order|source|get) (?:\w+ ){0,3}from|the market|reorder)\b/i;
-const TEAM_RE = /\b(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|a few)\s+(?:full[- ]time\s+|part[- ]time\s+)?(?:staff|employees|people|workers|baristas|stylists|chefs|cooks|waiters|assistants|team members)\b[^.;!?]*|\b(?:just me|only me|on my own|by myself|i work alone|me and my (?:wife|husband|partner|brother|sister|family)|family[- ]run)\b[^.;!?]*/i;
+export const GOAL_RE = /\b(?:what (?:i|we) (?:really |actually |mainly )?(?:want|need) is|i (?:really|just|mainly|actually) (?:want|need)|i(?:'d| would)? (?:want|like|love|hope)|we(?:'d| would)? (?:want|like|love|hope)|my goal is|our goal is|goal is|help (?:me|us)|i need (?:help|to)|we need to|so that i|so that we)\b/i;
+export const PAIN_RE = /\b(run(?:ning)? out|ran out|out of stock|stock-?outs?|problem|struggle|difficult|hard to|too long|takes? (?:up )?(?:hours|ages|time)|forget|missed?|mistakes?|errors?|chasing|no-?shows?|waste|late|slow|overwhelm|manual(?:ly)?|by hand|lose track|losing)\b/i;
+export const SUP_RE = /\b(suppliers?|wholesalers?|distributors?|vendors?|(?:buy|order|source|get) (?:\w+ ){0,3}from|the market|reorder)\b/i;
+export const TEAM_RE = /\b(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|a few)\s+(?:full[- ]time\s+|part[- ]time\s+)?(?:staff|employees|people|workers|baristas|stylists|chefs|cooks|waiters|assistants|team members)\b[^.;!?]*|\b(?:just me|only me|on my own|by myself|i work alone|me and my (?:wife|husband|partner|brother|sister|family)|family[- ]run)\b[^.;!?]*/i;
 /** Doing the daily work (opening, cooking, delivering…). "We serve X" is a product, not a routine. */
 const OPS_RE = /\b(?:we|i)\s+(?:usually\s+|normally\s+)?(?:open|close|start|cook from|prep|prepare|work|go to|deliver|bake from)\b|\bopening hours\b|\bshifts?\b|\b(?:every|each) (?:morning|day|evening)\b.*\b(?:we|i) (?:go|buy|cook|open)\b/i;
 
@@ -84,8 +138,8 @@ export function extractFacts(text: string): ExtractedFact[] {
     return { clause: cl[i], match: cl[i].match(re)! };
   };
 
-  const industry = INDUSTRY_RULES.find(([re]) => re.test(t));
-  if (industry) push("industry", industry[1]);
+  const industry = industryOf(t);
+  if (industry) push("industry", industry);
 
   // The name and the team size are short phrases picked out of a clause, not copies of it, so they
   // don't claim the clause ("…called Glow Studio with 4 stylists" gives both).
@@ -151,8 +205,8 @@ export function extractFromAnswer(text: string, askedField: ProfileFieldKey | nu
   if (askedField !== "business_name" && names[0]) facts.push({ field: "business_name", value: tidy(names[0]), status: "confirmed" });
 
   if (askedField === "industry") {
-    const ind = INDUSTRY_RULES.find(([re]) => re.test(t));
-    facts.push({ field: "industry", value: ind ? ind[1] : tidy(clip(t, 80)), status: "confirmed" });
+    const ind = industryOf(t);
+    facts.push({ field: "industry", value: ind ?? tidy(clip(t, 80)), status: "confirmed" });
   } else if (askedField === "business_name") {
     const value = names[0] ?? t.replace(/^(?:it'?s|we'?re|it is|the name is|we are)\s+(?:called\s+)?/i, "");
     facts.push({ field: "business_name", value: tidy(clip(value, 80)), status: "confirmed" });

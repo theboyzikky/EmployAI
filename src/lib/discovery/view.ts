@@ -4,7 +4,9 @@ import { isRunnableIndustry } from "@/lib/workflows/demo-data";
 import { teamWarnings } from "@/lib/catalogue/propose";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import { MAX_MESSAGE_LENGTH } from "./message";
-import { FIELD_LABELS, PROFILE_FIELDS, isKnown, readiness, type AnalysisItem, type Evidence } from "./profile";
+import { FIELD_LABELS, PROFILE_FIELDS, isKnown, type AnalysisItem, type Evidence } from "./profile";
+import { discoveryReadiness } from "./casefile";
+import { buildUnderstanding } from "./understanding";
 import { MAX_OWNER_MESSAGES, pendingOwnerMessages } from "./service";
 import { discoveryRepository, type BusinessRecord, type MessageKind } from "./store";
 import type { DiscoveryView, ViewEvidence } from "./view-types";
@@ -25,7 +27,7 @@ export async function buildView(b: BusinessRecord): Promise<DiscoveryView> {
   const items = (list: AnalysisItem[]) => list.map(i => ({ title: i.title, detail: i.detail, basis: i.basis, capability: i.capability, evidence: i.evidence.map(resolve) }));
 
   const approved = agents.some(a => a.status === "approved");
-  const { ready } = readiness(p);
+  const { ready } = discoveryReadiness(p);
   const stage: DiscoveryView["stage"] = approved ? "approved" : p.stage;
   const stageIndex = stage === "introduction" ? 0 : stage === "discovery" ? (ready ? 2 : 1) : stage === "summary" ? 3 : 4;
   const ai = configuredProvider(process.env);
@@ -71,6 +73,7 @@ export async function buildView(b: BusinessRecord): Promise<DiscoveryView> {
       warnings: teamWarnings(agents.map(a => ({ key: a.key, status: a.status }))),
       approvedAt: agents.find(a => a.approved_at)?.approved_at ?? null,
     } : null,
+    understanding: buildUnderstanding(p),
     ai: { label: ai.label, provider: ai.name, problem: ai.problem },
     limits: { maxMessageLength: MAX_MESSAGE_LENGTH, ownerMessagesLeft: Math.max(0, MAX_OWNER_MESSAGES - messages.filter(m => m.role === "user").length) },
   };

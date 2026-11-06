@@ -96,7 +96,7 @@ export function SummaryReview({ view, busy, onSave, onConfirm }: Props) {
                       {view.analysis[s.insights].map(i => (
                         <li key={i.title} className="flex gap-2 text-sm text-ink">
                           <span aria-hidden="true" className="mt-[0.5rem] h-1.5 w-1.5 flex-none rounded-full bg-accent" />
-                          <span>{i.title}{i.basis === "assumed" && <span className="ml-1 text-xs text-accent">(assumption)</span>}</span>
+                          <span>{i.title}{i.basis === "assumed" && <span className="ml-1 text-xs text-accent">(assumption)</span>}{i.basis === "supported" && <span className="ml-1 text-xs text-muted">(supported, not confirmed)</span>}</span>
                         </li>
                       ))}
                     </ul>

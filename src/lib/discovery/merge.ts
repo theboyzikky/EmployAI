@@ -4,6 +4,7 @@ import {
   LIST_FIELDS, MAX_FIELD_LENGTH, PROFILE_FIELDS, ProfileFieldKeySchema,
   type ProfileDoc, type ProfileFieldKey,
 } from "./profile";
+import { InterpretationSchema } from "./interpretation";
 
 /**
  * Output of one consultant turn (the `discovery_turn` AI task). Live models must return exactly this
@@ -22,6 +23,17 @@ export const DiscoveryTurnSchema = z.object({
   skipped_fields: z.array(ProfileFieldKeySchema).max(PROFILE_FIELDS.length),
 }).strict();
 export type DiscoveryTurn = z.infer<typeof DiscoveryTurnSchema>;
+
+/**
+ * M3.5: what the OFFLINE consultant returns. The live schema above is left exactly as it is (it is
+ * sent to the model as a strict JSON schema); only the offline provider adds the interpretation.
+ * The reply is composed by code from the case file, so it may be empty here.
+ */
+export const OfflineTurnSchema = DiscoveryTurnSchema.extend({
+  reply: z.string().max(1200),
+  interpretation: InterpretationSchema,
+}).strict();
+export type OfflineTurn = z.infer<typeof OfflineTurnSchema>;
 
 export type MergeResult = {
   profile: ProfileDoc;

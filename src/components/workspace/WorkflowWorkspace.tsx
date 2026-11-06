@@ -11,6 +11,7 @@ import type { WorkspaceView } from "@/lib/workflows/view-types";
 import { cx } from "@/lib/cx";
 import { StepDetail } from "./StepDetail";
 import { StepList } from "./StepList";
+import { DiscoveryNotice } from "./DiscoveryNotice";
 import { WorkflowDiagram } from "./WorkflowDiagram";
 import { WorkflowSettings } from "./WorkflowSettings";
 import { DemoDataCard, StatusBadge, ValidationPanel, VersionHistory } from "./WorkflowPanels";
@@ -161,6 +162,7 @@ export function WorkflowWorkspace({ initialView }: { initialView: WorkspaceView 
           <Icon icon={ShieldCheckIcon} size={16} swap={false} className="mt-0.5 flex-none text-accent" />
           {NOT_RUNNING}
         </p>
+        {view.discoveryBeforeM35 && <DiscoveryNotice />}
         {error && (
           <p role="alert" className="mt-3 flex items-start gap-2 text-sm font-medium text-danger">
             <Icon icon={XIcon} size={16} swap={false} className="mt-0.5 flex-none" />{error}

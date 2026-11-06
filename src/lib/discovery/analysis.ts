@@ -4,6 +4,8 @@ import {
   EvidenceSchema, isKnown,
   type Analysis, type AnalysisItem, type Evidence, type ProfileDoc,
 } from "./profile";
+import type { CaseFile } from "./casefile";
+import { causeOf, playbookByKey } from "./playbooks";
 
 /** What a model (or the offline rules) returns for the `business_analysis` task. Code adds `basis`. */
 const RawItem = z.object({
@@ -61,4 +63,31 @@ function dedupe(ev: Evidence[]): Evidence[] {
     seen.add(k);
     return true;
   });
+}
+
+/**
+ * M3.5: the basis of each recommendation follows the case file, decided by code. An improvement for
+ * a cause the owner confirmed is "confirmed"; for a cause their answers support but they haven't
+ * confirmed, "supported"; "measure first" items (cause unknown) are "assumed" (possible, not verified).
+ */
+export function caseBasis(analysis: Analysis, cf: CaseFile): Analysis {
+  const status = new Map<string, "confirmed" | "supported">();
+  const measures = new Set<string>(["Measure first: keep a note of when it happens and what led to it"]);
+  for (const p of cf.problems) {
+    const pb = playbookByKey(p.playbook);
+    if (!pb) continue;
+    measures.add(pb.measure.title);
+    for (const h of p.hypotheses) {
+      const fix = causeOf(pb, h.key)?.fix;
+      if (!fix) continue;
+      if (h.status === "confirmed") status.set(fix, "confirmed");
+      else if (h.status === "supported" && status.get(fix) !== "confirmed") status.set(fix, "supported");
+    }
+  }
+  const opportunities = analysis.opportunities.map(o => {
+    if (measures.has(o.title)) return { ...o, basis: "assumed" as const };
+    const s = [...status.entries()].find(([fix]) => o.title === fix || o.title.startsWith(`${fix} (`))?.[1];
+    return s ? { ...o, basis: s === "confirmed" ? o.basis : "supported" as const } : o;
+  });
+  return { ...analysis, opportunities };
 }

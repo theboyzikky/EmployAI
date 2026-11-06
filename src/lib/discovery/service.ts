@@ -6,9 +6,12 @@ import { ANALYSIS_SYSTEM, DISCOVERY_SYSTEM, PROMPT_VERSION, renderProfile, rende
 import { applyAgentPatch, proposeTeam, teamWarnings, type AgentPatch } from "@/lib/catalogue/propose";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import type { TurnContext } from "@/lib/rules/consultant";
-import { groundAnalysis, RawAnalysisSchema } from "./analysis";
-import { DiscoveryTurnSchema, mergeFacts } from "./merge";
-import { FIELD_LABELS, MAX_FIELD_LENGTH, PROFILE_FIELDS, isKnown, readiness, type ProfileDoc, type ProfileFieldKey } from "./profile";
+import { caseBasis, groundAnalysis, RawAnalysisSchema } from "./analysis";
+import type { AiResult } from "@/lib/ai/provider";
+import { discoveryReadiness, fieldsView, migrateToCaseFile, syncOwnerFields, type CaseFile } from "./casefile";
+import { DiscoveryTurnSchema, OfflineTurnSchema } from "./merge";
+import { FIELD_LABELS, MAX_FIELD_LENGTH, PROFILE_FIELDS, isKnown, type ProfileDoc, type ProfileFieldKey } from "./profile";
+import { applyInterpretation, legacyBookkeeping, legacyInterpretation, runTurn } from "./reasoning";
 import { discoveryRepository, type AgentRecord, type BusinessRecord, type MessageRecord } from "./store";
 
 export const MAX_OWNER_MESSAGES = 40;      // per discovery session (bounds AI cost in live mode)
@@ -85,10 +88,14 @@ export async function consultantTurn(business: BusinessRecord, input: { content?
     const pending = pendingOwnerMessages(messages);
     if (pending.length === 0) return { aiError: null }; // nothing to answer (e.g. a duplicate retry)
 
-    const profile = fresh.profile;
+    // M3.5: every turn works on the case file. A pre-M3.5 profile gets one, additively (its fields,
+    // statuses and messages are untouched; see migrateToCaseFile).
+    const profile = migrateToCaseFile(fresh.profile);
+    const caseFile = profile.case_file!;
     const firstTurn = !messages.some(m => m.role === "assistant");
     const transcript = messages.map(m => ({ id: m.id, role: m.role, content: m.content }));
-    const context: TurnContext = { profile, transcript, newOwnerMessageIds: pending.map(m => m.id), firstTurn };
+    const owner = ownerIds(messages);
+    const context: TurnContext = { profile, caseFile, transcript, newOwnerMessageIds: pending.map(m => m.id), firstTurn };
     const user = [
       `Prompt version: ${PROMPT_VERSION}`,
       `Profile so far (status in brackets):\n${renderProfile(profile)}`,
@@ -97,28 +104,44 @@ export async function consultantTurn(business: BusinessRecord, input: { content?
       `Conversation:\n${renderTranscript(transcript)}`,
     ].join("\n\n");
 
-    let result;
+    let result: AiResult<unknown>;
+    let nextCase: CaseFile;
+    let reply: string;
+    let asking: boolean;
     try {
       const ai = await getAi();
-      result = await ai.structured({ task: "discovery_turn", schema: DiscoveryTurnSchema, system: DISCOVERY_SYSTEM, user, context, maxTokens: 900 });
+      if (ai.name === "mock") {
+        // Offline: rules interpret; code applies, chooses the question and writes the reply.
+        const r = await ai.structured({ task: "discovery_turn", schema: OfflineTurnSchema, system: DISCOVERY_SYSTEM, user, context, maxTokens: 900 });
+        const turn = runTurn(profile, caseFile, r.data.interpretation, owner, { firstTurn });
+        result = r; nextCase = turn.caseFile; reply = turn.reply; asking = turn.plan.kind === "ask";
+      } else {
+        // Live (needs separate approval; not used): the M2 request and reply are unchanged. Its facts go into
+        // the case file; investigation of causes in live mode is P5 (out of M3.5 scope).
+        const r = await ai.structured({ task: "discovery_turn", schema: DiscoveryTurnSchema, system: DISCOVERY_SYSTEM, user, context, maxTokens: 900 });
+        const pendingField = legacyBookkeeping(caseFile).last_question_field;
+        const applied = applyInterpretation(caseFile, legacyInterpretation(r.data.facts, r.data.skipped_fields, pendingField), owner);
+        nextCase = applied.caseFile;
+        const fieldsNow = fieldsView(nextCase, profile.fields);
+        const q = r.data.question_field && !isKnown(fieldsNow[r.data.question_field]) ? r.data.question_field : null;
+        nextCase.pending = null;
+        if (q) {
+          const key = `fact:${q}`;
+          let item = nextCase.agenda.find(a => a.key === key);
+          if (!item) { item = { key, kind: "fact", target: q, problem_id: null, asked: 0, status: "open" }; nextCase.agenda.push(item); }
+          item.asked += 1; item.status = "open"; nextCase.pending = key; nextCase.questions_asked += 1;
+        }
+        result = r; reply = r.data.reply; asking = !!q;
+      }
     } catch (e) {
       return { aiError: toAiFailure(e) };
     }
 
-    const turn = result.data;
-    const merged = mergeFacts(profile, turn.facts, ownerIds(messages));
-    const next = merged.profile;
-    // Skips are only accepted for fields that are still unknown.
-    next.skipped = [...new Set([...next.skipped, ...turn.skipped_fields.filter(k => !isKnown(next.fields[k]))])];
-    const q = turn.question_field && !isKnown(next.fields[turn.question_field]) ? turn.question_field : null;
-    if (q && !next.asked.includes(q)) next.asked = [...next.asked, q];
-    next.last_question_field = q;
-    next.stage = "discovery";
-
+    const next: ProfileDoc = { ...profile, case_file: nextCase, fields: fieldsView(nextCase, profile.fields), ...legacyBookkeeping(nextCase), stage: "discovery" };
     await repo.updateBusiness(business.id, { profile: next, ...syncColumns(next) });
     await repo.appendMessage({
-      business_id: business.id, role: "assistant", content: turn.reply,
-      meta: { kind: q ? "question" : "insight", provider: result.provider, model: result.model, mode: result.mode, tokens: result.usage, cost_usd: result.costUsd },
+      business_id: business.id, role: "assistant", content: reply,
+      meta: { kind: asking ? "question" : "insight", provider: result.provider, model: result.model, mode: result.mode, tokens: result.usage, cost_usd: result.costUsd },
     });
     return { aiError: null };
   });
@@ -131,7 +154,7 @@ export async function analyse(business: BusinessRecord): Promise<{ aiError: AiFa
     const fresh = (await repo.getBusiness(business.id))!;
     const stage = fresh.profile.stage;
     if (stage === "proposal") throw new ServiceError("STATE_CONFLICT", 409, "The summary is already confirmed.");
-    if (stage === "discovery" && !readiness(fresh.profile).ready) {
+    if (stage === "discovery" && !discoveryReadiness(fresh.profile).ready) {
       throw new ServiceError("STATE_CONFLICT", 409, "The consultant needs a little more information first.");
     }
     if (stage === "introduction") throw new ServiceError("STATE_CONFLICT", 409, "Discovery hasn't started yet.");
@@ -150,7 +173,8 @@ export async function analyse(business: BusinessRecord): Promise<{ aiError: AiFa
     } catch (e) {
       return { aiError: toAiFailure(e) };
     }
-    const analysis = groundAnalysis(result.data, fresh.profile, ownerIds(messages), result.mode);
+    const grounded = groundAnalysis(result.data, fresh.profile, ownerIds(messages), result.mode);
+    const analysis = fresh.profile.case_file ? caseBasis(grounded, fresh.profile.case_file) : grounded;
     const first = fresh.profile.analysis === null;
     const profile: ProfileDoc = { ...fresh.profile, analysis, analysis_stale: false, stage: "summary", last_question_field: null };
     await repo.updateBusiness(business.id, { profile });
@@ -188,6 +212,7 @@ function applyEdits(p: ProfileDoc, edits: FieldEdits): ProfileDoc {
   const next = structuredClone(p);
   const now = new Date().toISOString();
   let changed = false;
+  const edited: ProfileFieldKey[] = [];
   for (const k of PROFILE_FIELDS) {
     if (!(k in edits)) continue;
     const raw = edits[k];
@@ -199,9 +224,10 @@ function applyEdits(p: ProfileDoc, edits: FieldEdits): ProfileDoc {
       ? { value, status: "confirmed", sources: cur.sources, updated_by: "owner", updated_at: now }
       : { value: null, status: "unknown", sources: [], updated_by: "owner", updated_at: now };
     changed = true;
+    edited.push(k);
   }
   if (changed && next.analysis) next.analysis_stale = true;
-  return next;
+  return syncOwnerFields(next, edited);   // the case file records the owner's corrections too
 }
 
 /** Stage 4 → 5: the owner confirms the summary. Assumptions shown for review become confirmed. */
@@ -221,7 +247,9 @@ export async function confirmSummary(business: BusinessRecord, edits: FieldEdits
     const f = profile.fields[k];
     if (f.status === "assumed") profile.fields[k] = { ...f, status: "confirmed", updated_at: now };
   }
-  profile = { ...profile, stage: "proposal" };
+  // The owner reviewed the facts in the summary. Possible causes are NOT confirmed by this: only the
+  // owner's answer to a confirmation question confirms a cause.
+  profile = { ...syncOwnerFields(profile, [], true), stage: "proposal" };
   await repo.updateBusiness(business.id, { profile, ...syncColumns(profile), profile_confirmed_at: now, summary: summaryText(profile) });
 }
 

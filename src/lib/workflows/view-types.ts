@@ -20,6 +20,8 @@ export type WorkspaceView = {
   businessName: string | null;
   industry: string | null;
   runnable: boolean;
+  /** M3.5: discovery captured before the consultant could investigate causes (approved items are unaffected). */
+  discoveryBeforeM35: boolean;
   teamApproved: boolean;
   teamApprovedAt: string | null;
   agents: WorkspaceAgent[];

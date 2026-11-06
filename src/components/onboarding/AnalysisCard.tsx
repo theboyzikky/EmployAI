@@ -65,6 +65,7 @@ function InsightItem({ item }: { item: ViewInsight }) {
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold text-ink">
         {item.title}
         {item.basis === "assumed" && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">Assumption, please check</span>}
+        {item.basis === "supported" && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[0.6875rem] font-semibold text-ink ring-1 ring-line">Supported by your answers, not confirmed</span>}
       </p>
       {item.detail && <p className="mt-0.5 font-normal leading-normal text-muted">{item.detail}</p>}
       <EvidenceList evidence={item.evidence} />

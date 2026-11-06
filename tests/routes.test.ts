@@ -27,6 +27,7 @@ import { FileDevStore, setDiscoveryRepository } from "@/lib/discovery/store";
 import { resetAiForTests } from "@/lib/ai";
 import { AGENT_TEMPLATES } from "@/lib/catalogue/catalogue";
 import { blockedFetch } from "./setup";
+import { referenceAnswer } from "./helpers/reference";
 
 const dir = mkdtempSync(path.join(tmpdir(), "eai-m2-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -55,26 +56,22 @@ async function newSession(message: string) {
 }
 const say = async (id: string, content?: string) => postMessage(req("POST", content === undefined ? {} : { content, client_message_id: crypto.randomUUID() }), ctx(id));
 
-/** Answer whatever is asked with a plausible restaurant answer until the consultant is ready. */
+/**
+ * M3.5: answer what the consultant actually asks (the question's purpose, from the view), following the
+ * reference restaurant conversation, until the consultant is ready. The M2 version matched field
+ * labels in the question text, which can't answer questions about possible causes.
+ */
 async function discoverRestaurant(id: string) {
   let v = (await body(await say(id))).view; // first consultant reply to the hero description
-  const answers: Record<string, string> = {
-    products_services: "Jollof rice, fried rice and grilled chicken.",
-    goals: "I want to stop running out of ingredients and stop phoning suppliers every morning.",
-    team_structure: "Me, my sister and two cooks.",
-    current_tools: "A notebook and WhatsApp.",
-    daily_operations: "We open at 11 and close at 9.",
-    customers_channels: "Counter and WhatsApp orders.",
-    challenges: "Running out of rice.",
-    suppliers: "Two market suppliers, by phone.",
-    business_name: "Mama Nkechi's Kitchen",
-  };
-  for (let i = 0; i < 10 && !v.ready; i++) {
-    const q = v.messages.at(-1)!;
-    const field = v.fields.find(f => f.value === null && q.content.toLowerCase().includes(f.label.split(" ")[0].toLowerCase()))?.key;
-    const asked = (["products_services", "goals", "team_structure", "current_tools", "daily_operations", "suppliers", "business_name"] as const).find(k => !v.fields.find(f => f.key === k)!.value);
-    v = (await body(await say(id, answers[field ?? asked ?? "goals"]))).view;
-  }
+  // A real owner types at human speed: advance the clock ~7 s per answer so the per-business
+  // turn limit (10 a minute, unchanged) applies as it would in use.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    for (let i = 0; i < 16 && !v.ready; i++) {
+      vi.setSystemTime(Date.now() + 7_000);
+      v = (await body(await say(id, referenceAnswer(v.understanding.asking)))).view;
+    }
+  } finally { vi.useRealTimers(); }
   return v;
 }
 
@@ -115,7 +112,7 @@ describe("the discovery journey (offline consultant)", () => {
     v = await discoverRestaurant(id);
     const consultantQuestions = v.messages.filter(m => m.role === "assistant" && m.kind === "question");
     expect(consultantQuestions.length).toBeGreaterThanOrEqual(1);
-    expect(consultantQuestions.length).toBeLessThanOrEqual(6);           // focused, not a questionnaire
+    expect(consultantQuestions.length).toBeLessThanOrEqual(12);          // M3.5 limit (Q7): at most 12 questions, one at a time
     expect(new Set(consultantQuestions.map(m => m.content)).size).toBe(consultantQuestions.length); // never repeats
     expect(v.ready).toBe(true);
     expect(v.stageIndex).toBe(2);
@@ -170,9 +167,11 @@ describe("the discovery journey (offline consultant)", () => {
     setDiscoveryRepository(new FileDevStore(dir));
     const v = (await body(await getDiscovery(req("GET"), ctx(id)))).view;
     expect(v.messages.filter(m => m.role === "user").map(m => m.content)).toEqual(["I run a small restaurant called Bukka Hut. We sell amala at the counter.", "Amala, ewedu and goat meat."]);
-    // "We sell amala" already answered products, so the answer was filed under the question actually asked.
+    // "We sell amala" already answered products. M3.5: the menu, given in reply to the goals question, is not
+    // a goal, so it is no longer filed there (M2 filed it as one); the question is asked again instead.
     expect(v.fields.find(f => f.key === "products_services")!.value).toBe("amala");
-    expect(v.fields.some(f => f.value === "Amala, ewedu and goat meat")).toBe(true);
+    expect(v.fields.find(f => f.key === "goals")!.value).toBeNull();
+    expect(v.messages.at(-1)!.content).toMatch(/I'm not sure how that fits yet/);
     // The restarted session resumes exactly where it stopped: with the consultant's open question.
     expect(v.pendingReply).toBe(false);
     expect(v.messages.at(-1)).toMatchObject({ role: "assistant", kind: "question" });

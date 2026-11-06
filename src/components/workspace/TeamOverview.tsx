@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Icon, ArrowRightIcon, CheckCircleIcon, InfoIcon } from "@/components/icons";
 import type { WorkspaceView } from "@/lib/workflows/view-types";
 import { cx } from "@/lib/cx";
+import { DiscoveryNotice } from "./DiscoveryNotice";
 
 /** Read-only view of the approved team. Changes to the team happen in discovery, before approval. */
 export function TeamOverview({ view }: { view: WorkspaceView }) {
@@ -21,6 +22,7 @@ export function TeamOverview({ view }: { view: WorkspaceView }) {
             Preview: workflows are only supported for the restaurant demo in this prototype, so this team can't run yet.
           </p>
         )}
+        {view.teamApproved && view.discoveryBeforeM35 && <DiscoveryNotice />}
         {!view.teamApproved && (
           <Link href={`/start/${view.businessId}`} className="btn btn-primary btn-sm icon-host mt-3">Back to discovery <Icon icon={ArrowRightIcon} size={16} /></Link>
         )}

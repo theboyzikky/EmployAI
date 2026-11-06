@@ -166,7 +166,7 @@ export function DiscoveryWorkspace({ initialView }: { initialView: DiscoveryView
       complete={view.stage === "approved"}
       saved
       badge={<AiModeBadge ai={view.ai} />}
-      panel={<ContextPanel fields={view.fields} />}
+      panel={<ContextPanel fields={view.fields} understanding={view.understanding} />}
     >
       <h1 className="sr-only">Business discovery{view.businessName ? `: ${view.businessName}` : ""}</h1>
       <div className="flex flex-1 flex-col gap-5 pb-6">

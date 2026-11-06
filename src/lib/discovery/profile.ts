@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CaseFile } from "./casefile";
 
 /**
  * Business profile (stored as `businesses.profile` jsonb in the approved schema, doc 03).
@@ -66,7 +67,8 @@ export const AnalysisItemSchema = z.object({
   title: z.string().min(1).max(120),
   detail: z.string().max(400),
   evidence: z.array(EvidenceSchema).min(1).max(6),
-  basis: z.enum(["confirmed", "assumed"]),
+  /** confirmed = the owner said or confirmed it · supported = backed by the owner's answers, not confirmed · assumed = possible, not verified. */
+  basis: z.enum(["confirmed", "supported", "assumed"]),
   capability: z.string().max(40).nullable(),
 }).strict();
 export type AnalysisItem = z.infer<typeof AnalysisItemSchema>;
@@ -92,7 +94,8 @@ export const ProfileDocSchema = z.object({
   analysis: AnalysisSchema.nullable(),
   analysis_stale: z.boolean(),
 }).strict();
-export type ProfileDoc = z.infer<typeof ProfileDocSchema>;
+/** M3.5: `case_file` holds the consultant's reasoning state; `fields` is its compatible view. Absent on pre-M3.5 profiles until migrated. */
+export type ProfileDoc = z.infer<typeof ProfileDocSchema> & { case_file?: CaseFile };
 
 export function emptyField(): ProfileField {
   return { value: null, status: "unknown", sources: [], updated_by: null, updated_at: null };

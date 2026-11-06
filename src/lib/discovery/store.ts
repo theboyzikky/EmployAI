@@ -6,6 +6,7 @@ import path from "node:path";
 import type { AgentKey, CapabilityKey } from "@/lib/catalogue/catalogue";
 import type { AgentDefinition } from "@/lib/catalogue/propose";
 import { emptyProfile, type ProfileDoc } from "./profile";
+import { emptyCaseFile } from "./casefile";
 import type { DemoScenario } from "@/lib/workflows/demo-data";
 import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workflows/schema";
 
@@ -152,7 +153,7 @@ export class FileDevStore implements DiscoveryRepository {
       const now = new Date().toISOString();
       const b: BusinessRecord = {
         id: randomUUID(), owner_hash: input.ownerHash, name: null, business_type: null, status: "discovering",
-        profile: emptyProfile(), summary: null, profile_confirmed_at: null, demo: false, scenario_data: null, created_at: now, updated_at: now,
+        profile: { ...emptyProfile(), case_file: emptyCaseFile("native") }, summary: null, profile_confirmed_at: null, demo: false, scenario_data: null, created_at: now, updated_at: now,
       };
       s.businesses[b.id] = b;
       s.messages[b.id] = [{ id: randomUUID(), business_id: b.id, role: "user", content: input.initialMessage, meta: { kind: "description" }, created_at: now }];

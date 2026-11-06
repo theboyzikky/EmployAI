@@ -1,6 +1,7 @@
 import "server-only";
 import { discoveryRepository, type BusinessRecord } from "@/lib/discovery/store";
 import { PARAM_LIMITS } from "./schema";
+import { isPreM35Discovery } from "@/lib/discovery/casefile";
 import { workflowContext } from "./service";
 import type { WorkspaceView } from "./view-types";
 
@@ -17,6 +18,7 @@ export async function buildWorkspaceView(b: BusinessRecord): Promise<WorkspaceVi
     businessName: business.name,
     industry: business.business_type,
     runnable: ctx.runnable,
+    discoveryBeforeM35: isPreM35Discovery(business.profile),
     teamApproved: ctx.teamApproved,
     teamApprovedAt: ctx.agents.find(a => a.approved_at)?.approved_at ?? null,
     agents: ctx.agents.map(a => ({

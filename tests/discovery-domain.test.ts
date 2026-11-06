@@ -51,10 +51,13 @@ describe("readiness is decided by code", () => {
 describe("offline consultant turn", () => {
   const transcript = [{ id: "m1", role: "user" as const, content: "I run a small restaurant called Mama Nkechi's Kitchen. We take orders at the counter and on WhatsApp, and we often run out of rice because I reorder from suppliers by phone." }];
 
-  test("first turn: acknowledges what it understood and asks exactly one question about an unknown field", () => {
+  // M3.5: the first question now investigates the problem the owner raised, starting with their own
+  // explanation, instead of the next empty field (M2 asked about products first).
+  test("first turn: acknowledges what it understood and asks exactly one question, about the stated problem", () => {
     const t = offlineDiscoveryTurn({ profile: emptyProfile(), transcript, newOwnerMessageIds: ["m1"], firstTurn: true });
     expect(t.facts.every(f => f.source_message_ids[0] === "m1")).toBe(true);
-    expect(t.question_field).toBe("products_services");
+    expect(t.question_field).toBeNull();                                   // not a field question
+    expect(t.reply).toMatch(/you think it's because you reorder from suppliers by phone/);
     expect(t.reply.match(/\?/g)?.length).toBe(1);
     expect(t.reply).toContain("Mama Nkechi's Kitchen");
   });

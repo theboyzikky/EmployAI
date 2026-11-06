@@ -30,6 +30,7 @@ import { POST as discard } from "@/app/api/w/[id]/workflows/[wid]/discard/route"
 import { FileDevStore, discoveryRepository, setDiscoveryRepository } from "@/lib/discovery/store";
 import { resetAiForTests } from "@/lib/ai";
 import { blockedFetch } from "./setup";
+import { RESTAURANT_HERO, referenceAnswer } from "./helpers/reference";
 
 const dir = mkdtempSync(path.join(tmpdir(), "eai-m3-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -54,22 +55,25 @@ afterEach(() => { delete process.env.AI_PROVIDER; resetAiForTests(); });
 const say = (id: string, content?: string) => postMessage(req("POST", content === undefined ? {} : { content, client_message_id: crypto.randomUUID() }), ctx(id));
 
 /** Runs discovery with the offline consultant up to a proposed team (not approved). */
-async function proposedTeam(message: string, answers: string[]) {
+/** M3.5: answers follow what the consultant asks (its question purpose), or a fixed list for other industries. */
+async function proposedTeam(message: string, answers: string[] | ((asking: DiscoveryView["understanding"]["asking"]) => string)) {
   const r = await start(req("POST", { message }));
   const id = ((await r.json()) as { sessionId: string }).sessionId;
   let v = (await dbody(await say(id))).view;
-  for (let i = 0; i < 12 && !v.ready; i++) v = (await dbody(await say(id, answers[i % answers.length]))).view;
+  vi.useFakeTimers({ toFake: ["Date"] });   // human typing pace for the (unchanged) 10-turns-a-minute limit
+  try {
+    for (let i = 0; i < 16 && !v.ready; i++) {
+      vi.setSystemTime(Date.now() + 7_000);
+      v = (await dbody(await say(id, typeof answers === "function" ? answers(v.understanding.asking) : answers[i % answers.length]))).view;
+    }
+  } finally { vi.useRealTimers(); }
   expect(v.ready).toBe(true);
   expect((await analyse(req("POST", {}), ctx(id))).status).toBe(200);
   expect((await confirm(req("POST", {}), ctx(id))).status).toBe(200);
   expect((await propose(req("POST", {}), ctx(id))).status).toBe(200);
   return id;
 }
-const RESTAURANT_ANSWERS = [
-  "Jollof rice, fried rice and grilled chicken.", "I want to stop running out of ingredients and stop phoning suppliers every morning.",
-  "Me, my sister and two cooks.", "A notebook and WhatsApp.", "We open at 11 and close at 9.", "Two market suppliers, by phone.", "Mama Nkechi's Kitchen",
-];
-const restaurant = () => proposedTeam("I run a small restaurant called Mama Nkechi's Kitchen. We take orders at the counter and on WhatsApp, and we often run out of rice and cooking oil because I reorder from suppliers by phone.", RESTAURANT_ANSWERS);
+const restaurant = () => proposedTeam(RESTAURANT_HERO, referenceAnswer);
 
 const gen = async (id: string) => generate(req("POST", {}), ctx(id));
 const patch = (id: string, wid: string, settings: unknown) => patchWorkflow(req("PATCH", { settings }), ctx(id, { wid }));
@@ -102,7 +106,8 @@ describe("workflows: access and preconditions", () => {
 
   test("non-restaurant businesses stay in Preview: no workflow, no demo data", async () => {
     const id = await proposedTeam("I run a hair salon called Glow Studio. Customers book appointments by phone and WhatsApp, and we often get double bookings and no-shows.",
-      ["Haircuts, braiding and nails.", "I want fewer no-shows and no double bookings.", "Me and three stylists.", "A paper diary and WhatsApp.", "We open 9 to 7.", "Glow Studio"]);
+      a => a?.kind === "fact" ? ({ products_services: "Haircuts, braiding and nails.", goals: "I want fewer no-shows and no double bookings.", team_structure: "Me and three stylists.", current_tools: "A paper diary and WhatsApp.", daily_operations: "We open 9 to 7.", business_name: "Glow Studio", suppliers: "A beauty wholesaler.", customers_channels: "Phone and WhatsApp." } as Record<string, string>)[a.target] ?? "I'd rather not say."
+        : a?.kind === "confirm_cause" ? "Yes." : a?.kind === "other_problems" ? "No, that's all." : "Not always, sometimes we forget.");
     expect((await approveTeam(req("POST", {}), ctx(id))).status).toBe(200);
     const r = await gen(id);
     expect(r.status).toBe(409);

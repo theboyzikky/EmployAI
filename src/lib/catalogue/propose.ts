@@ -23,7 +23,7 @@ export type AgentDefinition = {
   version: 1;
   catalogue_version: string;
   tasks: Array<{ id: string; label: string; enabled: boolean }>;
-  reasons: Array<{ title: string; detail: string; evidence: Evidence[]; basis: "confirmed" | "assumed" }>;
+  reasons: Array<{ title: string; detail: string; evidence: Evidence[]; basis: "confirmed" | "supported" | "assumed" }>;
   collaborates_with: AgentKey[];
   depends_on: AgentKey[];
   owner_note: string;

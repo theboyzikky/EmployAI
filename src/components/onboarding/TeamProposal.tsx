@@ -133,7 +133,7 @@ function AgentProposalCard({ agent, locked, busy, onPatch }: { agent: Agent; loc
       <ul className="mt-1.5 space-y-2.5">
         {agent.reasons.map(r => (
           <li key={r.title} className="text-sm">
-            <p className="font-medium text-ink">{r.title}{r.basis === "assumed" && <span className="ml-1.5 rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">Based on an assumption</span>}</p>
+            <p className="font-medium text-ink">{r.title}{r.basis === "assumed" && <span className="ml-1.5 rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">Based on an assumption</span>}{r.basis === "supported" && <span className="ml-1.5 rounded-full bg-surface-2 px-2 py-0.5 text-[0.6875rem] font-semibold text-ink ring-1 ring-line">Supported by your answers, not confirmed</span>}</p>
             <EvidenceList evidence={r.evidence} />
           </li>
         ))}

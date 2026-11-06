@@ -156,7 +156,7 @@ export function DiscoveryWorkspace({ initialView }: { initialView: DiscoveryView
           </button>
         </div>
       )}
-      {view.team?.proposed && <TeamProposal team={view.team} busy={busy} onPatch={patchAgent} onApprove={approve} />}
+      {view.team?.proposed && <TeamProposal team={view.team} busy={busy} onPatch={patchAgent} onApprove={approve} workspaceHref={`/w/${view.id}/${view.runnable ? "workflows" : "team"}`} runnable={view.runnable} />}
     </div>
   );
 

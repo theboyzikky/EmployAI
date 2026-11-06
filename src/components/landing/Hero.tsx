@@ -78,7 +78,7 @@ export function Hero() {
         </h1>
 
         <p className="enter mt-6 max-w-[38rem] text-lg font-light leading-relaxed text-muted sm:text-xl" style={{ "--enter-delay": "160ms" } as CSSProperties}>
-          Describe your business and let AI design, build and safely deploy specialised agents &mdash; while you stay in control of every rule, payment and permission.
+          Describe your business and let AI design specialised agents and build checked workflows for your approval &mdash; while you stay in control of every rule, payment and permission.
         </p>
 
         <div className="enter mt-8 flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:items-center" style={{ "--enter-delay": "240ms" } as CSSProperties}>

@@ -12,7 +12,7 @@ EmployAI is a **hackathon prototype** that introduces and demonstrates one idea:
 | 2 | **Discovery questions** | A consultant asks 3–6 focused follow-ups; the "What I understand" panel fills in; a summary to confirm | **Final demo: NEAR AI Cloud** (Qwen 3.8 27B, strict JSON extraction; PoC-A 5/5). Development and tests: a rule-based offline consultant (labelled "Offline demo AI"). |
 | 3 | **Recommended AI team** | Orchestrator + specialist agents, each with purpose, responsibilities, tools, limits and "never does" | Deterministic mapping from the profile to a fixed **capability catalogue**; an LLM refines the wording when enabled |
 | 4 | **Review and approve** | Edit, remove or approve each agent; nothing runs before approval | Approval stored with a timestamp |
-| 5 | **Generate and deploy workflows** | A step-by-step workflow graph per scenario, validation ticks, "Deploy" | Template-based generation (deterministic); a validator; deployed version stored |
+| 5 | **Generate and approve workflows** | A step-by-step workflow graph per scenario, validation ticks, "Approve workflow" | Template-based generation (deterministic); a path-based validator; the approved version is stored and locked. Approving runs nothing (test runs start in M4). |
 | 6 | **Agents collaborate on a real scenario** | "Run demo order": a live timeline of Order → Inventory → Procurement → Finance handoffs, with reasoning | Real runs with every step persisted. Procurement: deterministic scoring decides the eligible options, and **Haiku 5.5 via NEAR AI** writes the recommendation through a tool call (PoC-A 10/10). Offline mode uses a templated rationale. |
 | 7 | **Security controls sensitive actions** | The supplier payment goes through the security check: ALLOW, WARN (owner approves) or BLOCK; kill switch | Deterministic gate, single-use decisions, approval queue |
 | 8 | **Meaningful NEAR testnet transaction** | (a) the customer's order payment is split automatically to a contributors' account; (b) the Finance Agent pays the supplier through the treasury contract; both have explorer links on a public ledger | **Real testnet transactions** with a policy-enforcing contract and a restricted (function-call) agent key |
@@ -33,7 +33,7 @@ The five agents of the restaurant workforce stay, and they collaborate on every 
 
 | Agent | Role in the demo order |
 |---|---|
-| **Business Orchestrator** | Runs the deployed workflow, delegates each task, records every handoff (requester, assignee, task, result), and summarises the run |
+| **Business Orchestrator** | Runs the approved workflow, delegates each task, records every handoff (requester, assignee, task, result), and summarises the run |
 | **Order Agent** | Validates the order against the menu and the minimum order value |
 | **Inventory Agent** | Updates stock, detects items below the reorder threshold, sets the reorder quantity |
 | **Procurement Agent** | Compares supplier quotes and recommends a supplier, with a rationale |
@@ -46,7 +46,7 @@ This is **internal agent coordination inside one business**. The README, UI and 
 - Landing page (PRD §17.4 sections, working hero input), consultant onboarding, and a workspace with **5 screens**: Overview, AI Team, Workflows (including the run timeline), Security (policy, decisions, approvals, kill switch, blocklist), Ledger (also public).
 - **A configurable AI provider** with `AI_PROVIDER` set explicitly: `nearai` for the product and final demo (Qwen: discovery JSON; Haiku: tool calls), and `mock` for development and tests. Structured outputs validated with zod, a daily inference cap per business, cost recorded per call, no silent fallback.
 - Capability catalogue and agent proposal; approval.
-- Workflow schema with **8 step types** (`trigger`, `agent_task`, `condition`, `security_check`, `approval`, `payment`, `notify`, `end`), a validator, deploy, and an in-process runner that persists every step.
+- Workflow schema with **8 step types** (`trigger`, `agent_task`, `condition`, `security_check`, `approval`, `payment`, `notify`, `end`), a validator, owner approval, and an in-process runner that persists every step.
 - Restaurant scenario: order → stock check → reorder need → 3 supplier quotes (seeded, fictional) → Procurement recommendation → Finance payment request → security gate → testnet payout.
 - Treasury contract (Rust): `pay_order` (sale + automatic split), `request_payment` (registered agent, approved recipient, per-transaction and daily caps, paused flag, request ID dedupe), owner `set_policy` / `pause` / `unpause`.
 - Security gate, approval queue, kill switch (in-app immediately; on-chain pause by owner script), shared blocklist with evidence, the 4 signals, and the attack demo script.

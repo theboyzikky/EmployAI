@@ -67,7 +67,7 @@ function FlowStep({ step, index, vertical = false }: { step: Step; index: number
       <div className={vertical ? "pt-1" : "mt-4"}>
         <p className="text-xs font-medium uppercase tracking-wide text-muted">{step.agent}</p>
         <p className="mt-1 text-[0.9375rem] font-semibold text-ink">{step.title}</p>
-        <p className="mt-1 text-sm font-light leading-snug text-muted">{step.detail}</p>
+        <p className="mt-1 text-sm font-light leading-normal text-muted">{step.detail}</p>
         {step.badge && (
           <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-semibold text-success">
             {step.badge}

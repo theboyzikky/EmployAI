@@ -13,14 +13,14 @@ Status: **Revised 2026-11-05 to match [00-mvp-scope.md](00-mvp-scope.md). Awaiti
 
 | HTTP | Codes |
 |---|---|
-| 400 | `VALIDATION_FAILED`, `WORKFLOW_INVALID` |
+| 400 | `VALIDATION_FAILED` |
 | 401 / 404 | `UNAUTHENTICATED` / `NOT_FOUND` (also used for other owners' resources) |
-| 409 | `STATE_CONFLICT` (for example deploying before the team is approved, or deciding an expired approval) |
+| 409 | `STATE_CONFLICT` (for example approving a workflow twice, or deciding an expired approval), `TEAM_NOT_APPROVED`, `PREVIEW_ONLY` (workflows outside the restaurant demo), `WORKFLOW_INVALID` (approving a workflow that fails a check) |
 | 422 | `SECURITY_BLOCKED`, `BUDGET_EXHAUSTED`, `KILL_SWITCH_ACTIVE` (the body includes reason codes) |
 | 429 | `RATE_LIMITED` (in-memory per-IP limit on anonymous session creation and the public ledger) |
 | 502 | `AI_UNAVAILABLE`, `CHAIN_UNAVAILABLE` (safe to retry) |
 
-## Endpoints (18 planned; M2 added `discovery/analyse`, `PATCH discovery` and `team/approve`)
+## Endpoints (18 planned; M2 added `discovery/analyse`, `PATCH discovery` and `team/approve`; M3 replaced `workflows/:wid/deploy` with `approve`, and added `PATCH workflows/:wid` and `discard`)
 
 ### Discovery (steps 1–2)
 
@@ -40,15 +40,17 @@ Status: **Revised 2026-11-05 to match [00-mvp-scope.md](00-mvp-scope.md). Awaiti
 | `POST /api/w/:id/team/propose` | — | `202`. Fails `409` if the profile isn't confirmed. |
 | `GET /api/w/:id/team` | — | `{ agents[] (definition, capability, executable, status) }` |
 | `PATCH /api/w/:id/team/:agentKey` | `{ status?: 'proposed'\|'removed', tasks?: {id: bool}, owner_note? }` | `200 { view }`. Tools, scopes and money permissions are **not** editable: they come from the catalogue. |
-| `POST /api/w/:id/team/approve` | `{}` | `200 { view }` (added in M2). Records approval of every kept agent with a timestamp. **Deploys and runs nothing.** |
+| `POST /api/w/:id/team/approve` | `{}` | `200 { view }` (added in M2). Records approval of every kept agent with a timestamp. **Runs nothing.** |
 
 ### Workflows and runs (steps 5–6)
 
 | Method & path | Request | Response |
 |---|---|---|
-| `POST /api/w/:id/workflows/generate` | — | `202`. Uses the approved, executable agents. |
-| `GET /api/w/:id/workflows` | — | `{ workflows[] (steps, validation, status) }` |
-| `POST /api/w/:id/workflows/:wid/deploy` | — | `200`. Fails `409` if invalid. |
+| `POST /api/w/:id/workflows/generate` | `{}` | `200 { view }` (M3). Builds, or replaces, the draft from the approved, executable agents (fixed templates, no AI). `409 TEAM_NOT_APPROVED` before team approval; `409 PREVIEW_ONLY` outside the restaurant demo. |
+| `GET /api/w/:id/workflows` | — | `200 { view }`: workflows newest first (steps, validation, status), the team, and the labelled restaurant demo data |
+| `PATCH /api/w/:id/workflows/:wid` | `{ settings: { approval_threshold_ngn?, max_payment_ngn?, notify_customer?, notify_owner? } }` | `200 { view }` (M3). Only these settings are editable: illustrative NGN, no currency conversion (NEAR limits and fees are set in M5). A draft is rebuilt and re-validated; an approved version becomes a new draft version. `400` out of range; `409` on a superseded version. |
+| `POST /api/w/:id/workflows/:wid/approve` | `{}` | `200 { view }` (M3). Re-validates against the current team; `409 WORKFLOW_INVALID` if any check fails (the result is saved); `409 STATE_CONFLICT` if not a draft. Supersedes the previously approved version. **Runs nothing.** |
+| `POST /api/w/:id/workflows/:wid/discard` | `{}` | `200 { view }` (M3). Drafts only; approved versions stay on record. |
 | `POST /api/w/:id/runs` | `{ workflow_id, scenario: 'standard'\|'new_supplier'\|'attack' }` + `Idempotency-Key` | `202 { run_id }` |
 | `GET /api/runs/:runId` | — | `{ run (status, elapsed_ms), steps[] (agent, task, output, reasoning, status), decisions[], ledger[] }` (owner only) |
 

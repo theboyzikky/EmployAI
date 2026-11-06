@@ -1,5 +1,6 @@
 import "server-only";
 import { configuredProvider } from "@/lib/ai/factory";
+import { isRunnableIndustry } from "@/lib/workflows/demo-data";
 import { teamWarnings } from "@/lib/catalogue/propose";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import { MAX_MESSAGE_LENGTH } from "./message";
@@ -28,12 +29,14 @@ export async function buildView(b: BusinessRecord): Promise<DiscoveryView> {
   const stage: DiscoveryView["stage"] = approved ? "approved" : p.stage;
   const stageIndex = stage === "introduction" ? 0 : stage === "discovery" ? (ready ? 2 : 1) : stage === "summary" ? 3 : 4;
   const ai = configuredProvider(process.env);
+  const runnable = isRunnableIndustry(business!.business_type);
 
   return {
     id: b.id,
     stage,
     stageIndex,
     businessName: business!.name,
+    runnable,
     ready: p.stage === "discovery" && ready,
     pendingReply: (p.stage === "introduction" || p.stage === "discovery") && pendingOwnerMessages(messages).length > 0,
     messages: messages.map(m => ({
@@ -57,7 +60,8 @@ export async function buildView(b: BusinessRecord): Promise<DiscoveryView> {
     confirmedAt: business!.profile_confirmed_at,
     team: agents.length || p.stage === "proposal" ? {
       agents: agents.map(a => ({
-        key: a.key as AgentKey, name: a.name, status: a.status, executable: a.executable, approvedAt: a.approved_at,
+        // Only the restaurant scenario is runnable in this prototype; other industries stay Preview.
+        key: a.key as AgentKey, name: a.name, status: a.status, executable: a.executable && runnable, approvedAt: a.approved_at,
         role: a.definition.role, purpose: a.definition.purpose, tasks: a.definition.tasks, reasons: a.definition.reasons.map(r => ({ title: r.title, detail: r.detail, basis: r.basis, evidence: r.evidence.map(resolve) })),
         collaboratesWith: a.definition.collaborates_with.map(k => agents.find(x => x.key === k)?.name).filter((n): n is string => !!n),
         tools: a.definition.allowed_tools, financialPermissions: a.definition.financial_permissions,

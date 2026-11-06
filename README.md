@@ -47,7 +47,7 @@ Check them: `node -v`, `npm -v`, `git --version`, `rustc --version`, `cargo near
 7. Do: click **Analyse my business**, correct anything in the summary, then **Confirm summary**. See: processes, repetitive work, bottlenecks and automation opportunities, each with the answer it is based on; then the proposed team — for a restaurant, the Business Orchestrator plus Order, Inventory, Procurement and Finance agents. Remove an agent or switch off a task, then **Approve team**. See: approval recorded with a timestamp; **nothing runs, pays or contacts anyone** (workflows come next).
 8. Do: describe a hair salon instead. See: a smaller team (a Bookings Agent labelled "Preview — not executable in this prototype"), because agents are only proposed for what you actually said.
 9. Do: run `npm test`. See: 44 tests pass (rules, grounding, team rules, provider safeguards against a local fake server, route ownership/validation, prompt injection), with all network access blocked.
-10. Do: deploy the generated workflow and click "Run demo order". See: _(planned — live agent handoffs, a security decision, testnet transactions on the public ledger, and the measured sale-to-payout time)_
+10. Do: approve the generated workflow and click "Run demo order". See: _(planned — live agent handoffs, a security decision, testnet transactions on the public ledger, and the measured sale-to-payout time)_
 11. Do: run `npm run demo:attack`. See: _(planned — injected instruction, BLOCK decision with reasons, no transaction hash)_
 
 ## What is live, testnet, simulated

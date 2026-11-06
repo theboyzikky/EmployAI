@@ -6,6 +6,8 @@ import path from "node:path";
 import type { AgentKey, CapabilityKey } from "@/lib/catalogue/catalogue";
 import type { AgentDefinition } from "@/lib/catalogue/propose";
 import { emptyProfile, type ProfileDoc } from "./profile";
+import type { DemoScenario } from "@/lib/workflows/demo-data";
+import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workflows/schema";
 
 /*
  * Records mirror the APPROVED database design (docs/architecture/03-database-design.md), so the
@@ -27,6 +29,8 @@ export type BusinessRecord = {
   summary: string | null;
   profile_confirmed_at: string | null;
   demo: boolean;
+  /** Approved column. Restaurant DEMO data (fictional, labelled), kept apart from the owner's profile. */
+  scenario_data?: DemoScenario | null;
   created_at: string;
   updated_at: string;
 };
@@ -59,6 +63,19 @@ export type AgentRecord = {
   created_at: string;
 };
 
+/** Mirrors approved table 4 `workflows`. M3: draft → approved (owner) → superseded by a newer approval. */
+export type WorkflowRecord = {
+  id: string;
+  business_id: string;
+  name: string;
+  version: number;
+  steps: WorkflowDoc;            // jsonb: the whole validated workflow document, including settings
+  validation: ValidationResult;  // jsonb
+  status: WorkflowStatus;
+  approved_at: string | null;
+  created_at: string;
+};
+
 export interface DiscoveryRepository {
   createBusiness(input: { ownerHash: string; initialMessage: string }): Promise<BusinessRecord>;
   getBusiness(id: string): Promise<BusinessRecord | null>;
@@ -69,6 +86,10 @@ export interface DiscoveryRepository {
   listAgents(businessId: string): Promise<AgentRecord[]>;
   replaceAgents(businessId: string, agents: Array<Omit<AgentRecord, "id" | "business_id" | "created_at">>): Promise<AgentRecord[]>;
   updateAgent(businessId: string, key: AgentKey, patch: Partial<Pick<AgentRecord, "definition" | "status" | "approved_at">>): Promise<AgentRecord>;
+  listWorkflows(businessId: string): Promise<WorkflowRecord[]>;
+  createWorkflow(rec: Omit<WorkflowRecord, "id" | "created_at">): Promise<WorkflowRecord>;
+  updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at">>): Promise<WorkflowRecord>;
+  deleteWorkflow(businessId: string, workflowId: string): Promise<void>;
 }
 
 export const OWNER_COOKIE = "eai_owner";
@@ -77,7 +98,7 @@ export const hashOwnerToken = (token: string) => createHash("sha256").update(tok
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const isSessionId = (id: string) => UUID_RE.test(id);
 
-type DevState = { version: 2; businesses: Record<string, BusinessRecord>; messages: Record<string, MessageRecord[]>; agents: Record<string, AgentRecord[]> };
+type DevState = { version: 2; businesses: Record<string, BusinessRecord>; messages: Record<string, MessageRecord[]>; agents: Record<string, AgentRecord[]>; workflows?: Record<string, WorkflowRecord[]> };
 
 /**
  * LOCAL DEVELOPMENT STORE — NOT PRODUCTION PERSISTENCE.
@@ -131,7 +152,7 @@ export class FileDevStore implements DiscoveryRepository {
       const now = new Date().toISOString();
       const b: BusinessRecord = {
         id: randomUUID(), owner_hash: input.ownerHash, name: null, business_type: null, status: "discovering",
-        profile: emptyProfile(), summary: null, profile_confirmed_at: null, demo: false, created_at: now, updated_at: now,
+        profile: emptyProfile(), summary: null, profile_confirmed_at: null, demo: false, scenario_data: null, created_at: now, updated_at: now,
       };
       s.businesses[b.id] = b;
       s.messages[b.id] = [{ id: randomUUID(), business_id: b.id, role: "user", content: input.initialMessage, meta: { kind: "description" }, created_at: now }];
@@ -186,6 +207,38 @@ export class FileDevStore implements DiscoveryRepository {
       const now = new Date().toISOString();
       s.agents[businessId] = agents.map(a => ({ ...a, id: randomUUID(), business_id: businessId, created_at: now }));
       return s.agents[businessId];
+    });
+  }
+
+  async listWorkflows(businessId: string) {
+    return ((await this.snapshot()).workflows ?? {})[businessId] ?? [];
+  }
+
+  createWorkflow(rec: Omit<WorkflowRecord, "id" | "created_at">) {
+    return this.mutate(s => {
+      if (!s.businesses[rec.business_id]) throw new Error("NOT_FOUND");
+      const all = (s.workflows ??= {});
+      const w: WorkflowRecord = { ...rec, id: randomUUID(), created_at: new Date().toISOString() };
+      (all[rec.business_id] ??= []).push(w);
+      return w;
+    });
+  }
+
+  updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at">>) {
+    return this.mutate(s => {
+      const w = ((s.workflows ?? {})[businessId] ?? []).find(x => x.id === workflowId);
+      if (!w) throw new Error("NOT_FOUND");
+      Object.assign(w, patch);
+      return w;
+    });
+  }
+
+  deleteWorkflow(businessId: string, workflowId: string) {
+    return this.mutate(s => {
+      const list = (s.workflows ?? {})[businessId] ?? [];
+      const i = list.findIndex(x => x.id === workflowId);
+      if (i < 0) throw new Error("NOT_FOUND");
+      list.splice(i, 1);
     });
   }
 

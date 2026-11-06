@@ -45,7 +45,7 @@
   --eai-border: var(--black-200);             /* borders, dividers */
   --eai-fg: var(--black-primary);             /* headings, body, primary buttons */
   --eai-on-fg: #ffffff;
-  --eai-muted: rgb(0 0 0 / 0.64);             /* secondary text: Primary at 64 % (≈ 6.3:1 on bg) */
+  --eai-muted: rgb(0 0 0 / 0.58);             /* sub text, light ash: Primary at 58 % (≈ #6b6b6b; ≥ 4.9:1 on every light surface) */
   --eai-subtle: var(--black-400);             /* disabled icons, placeholders */
   --eai-accent: var(--violet-secondary);      /* accent text / icons */
   --eai-accent-solid: var(--violet-secondary);/* accent surfaces: hover, avatar, selected */
@@ -75,7 +75,7 @@
   --eai-border: color-mix(in srgb, var(--black-100) 19%, var(--black-primary));     /* ≈ #2f2f2f */
   --eai-fg: var(--black-100);
   --eai-on-fg: var(--black-primary);
-  --eai-muted: var(--black-400);              /* ≈ 8.8:1 on the dark surface */
+  --eai-muted: color-mix(in srgb, var(--black-400) 80%, var(--black-primary)); /* sub text, darker ash (≈ #8d8d8d; ≥ 4.8:1 on every dark surface) */
   --eai-subtle: rgb(176 176 176 / 0.55);      /* Black 400 at reduced opacity */
   --eai-accent: var(--violet-300);            /* readable violet on dark (≈ 11:1) */
   --eai-accent-solid: var(--violet-secondary);
@@ -103,6 +103,10 @@
   --font-weight-extralight: initial;
   --font-weight-extrabold: initial;
   --font-weight-black: initial;
+
+  /* Moderate line spacing for small text (owner request 2026-11-06): 1.5 instead of 1.33 (xs) / 1.43 (sm). */
+  --text-xs--line-height: 1.5;
+  --text-sm--line-height: 1.5;
 
   --color-canvas: var(--eai-bg);
   --color-surface: var(--eai-surface);

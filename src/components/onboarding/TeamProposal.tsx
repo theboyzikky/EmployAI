@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react/dist/lib/types";
 import {
-  Icon, CaretDownIcon, ChatCircleDotsIcon, CalendarDotsIcon, CheckCircleIcon, CircleNotchIcon, InfoIcon, MinusCircleIcon,
+  Icon, ArrowRightIcon, CaretDownIcon, ChatCircleDotsIcon, CalendarDotsIcon, CheckCircleIcon, CircleNotchIcon, InfoIcon, MinusCircleIcon,
   PackageIcon, PlusCircleIcon, ReceiptIcon, ShieldCheckIcon, TreeStructureIcon, TruckIcon, UsersThreeIcon, WalletIcon, WarningIcon,
 } from "@/components/icons";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
@@ -21,8 +22,12 @@ type Agent = Team["agents"][number];
 export type AgentPatch = { status?: "proposed" | "removed"; tasks?: Record<string, boolean>; owner_note?: string };
 
 /** Stage 5: the recommended workforce. Proposed and configurable only; nothing runs in this stage. */
-export function TeamProposal({ team, busy, onPatch, onApprove }: {
+export function TeamProposal({ team, busy, onPatch, onApprove, workspaceHref, runnable = true }: {
   team: Team; busy: string | null;
+  /** Link to the workflows workspace (shown once the team is approved). */
+  workspaceHref?: string;
+  /** False outside the restaurant demo: the team stays in Preview and no workflows are built. */
+  runnable?: boolean;
   onPatch: (key: AgentKey, patch: AgentPatch) => Promise<boolean>;
   onApprove: () => Promise<boolean>;
 }) {
@@ -66,12 +71,21 @@ export function TeamProposal({ team, busy, onPatch, onApprove }: {
             <Icon icon={CheckCircleIcon} size={22} swap={false} className="mt-0.5 flex-none text-success" />
             <div>
               <p className="text-sm font-semibold text-ink">Team approved on {new Date(team.approvedAt!).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</p>
-              <p className="mt-0.5 text-sm font-light text-muted">Nothing is running. In the next stage EmployAI generates the workflows for these agents, tests them and asks for your approval again before anything is deployed.</p>
+              <p className="mt-0.5 text-sm font-light text-muted">
+                {runnable
+                  ? "Nothing is running. Next, EmployAI builds the workflows for these agents for you to check and approve. Approving a workflow doesn't run it."
+                  : "Nothing is running. Workflows are only supported for the restaurant demo in this prototype, so this team stays in Preview."}
+              </p>
+              {workspaceHref && (
+                <Link href={workspaceHref} className="btn btn-primary btn-sm icon-host mt-3">
+                  {runnable ? "Build workflows" : "View team workspace"} <Icon icon={ArrowRightIcon} size={16} />
+                </Link>
+              )}
             </div>
           </div>
         ) : (
           <div className="card flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-            <p className="text-sm text-muted">{confirming ? "Approve this team? Your approval is recorded with a timestamp. Nothing is deployed or run." : `${kept.length} of ${team.agents.length} agents kept.`}</p>
+            <p className="text-sm text-muted">{confirming ? "Approve this team? Your approval is recorded with a timestamp. Nothing runs." : `${kept.length} of ${team.agents.length} agents kept.`}</p>
             <div className="flex gap-2">
               {confirming && <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirming(false)} disabled={!!busy}>Not yet</button>}
               <button

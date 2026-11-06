@@ -66,7 +66,7 @@ function InsightItem({ item }: { item: ViewInsight }) {
         {item.title}
         {item.basis === "assumed" && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">Assumption, please check</span>}
       </p>
-      {item.detail && <p className="mt-0.5 font-normal leading-snug text-muted">{item.detail}</p>}
+      {item.detail && <p className="mt-0.5 font-normal leading-normal text-muted">{item.detail}</p>}
       <EvidenceList evidence={item.evidence} />
     </li>
   );
@@ -76,7 +76,7 @@ export function EvidenceList({ evidence, className }: { evidence: ViewEvidence[]
   return (
     <ul className={cx("mt-1.5 space-y-1", className)} aria-label="Based on">
       {evidence.slice(0, 3).map((e, i) => (
-        <li key={i} className="flex items-start gap-1.5 text-xs font-normal leading-snug text-muted">
+        <li key={i} className="flex items-start gap-1.5 text-xs font-normal leading-normal text-muted">
           <Icon icon={QuotesIcon} size={12} swap={false} className="mt-0.5 flex-none text-accent" />
           <span>
             <span className="font-medium text-ink">{e.label}{e.kind === "field" && e.status === "assumed" ? " (unconfirmed)" : ""}:</span> “{e.text}”

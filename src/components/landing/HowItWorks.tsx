@@ -6,7 +6,7 @@ const STEPS = [
   { icon: ChatTextIcon, title: "Describe your business", body: "Tell EmployAI what you do, how customers order and what slows you down — in your own words." },
   { icon: CompassIcon, title: "Discover your operations", body: "A business consultant asks focused follow-up questions and keeps a clear summary of what it has understood." },
   { icon: UserCheckIcon, title: "Review your AI workforce", body: "See the recommended team: what each agent does, which tools it may use, its limits and what it never does." },
-  { icon: TreeStructureIcon, title: "Build, test and deploy", body: "EmployAI generates the workflows, checks them, and deploys only what you approve." },
+  { icon: TreeStructureIcon, title: "Build, validate and approve workflows", body: "EmployAI generates the workflows and checks every step, then waits for your approval." },
 ] as const;
 
 export function HowItWorks() {

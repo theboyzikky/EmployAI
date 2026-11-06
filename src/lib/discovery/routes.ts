@@ -11,7 +11,7 @@ type Handler = (business: BusinessRecord, correlationId: string) => Promise<Resp
  * Shared wrapper for /api/w/[id]/* routes: correlation ID, owner check (404 for anyone else),
  * JSON + same-origin checks on mutations, and one error envelope. Logs codes only, never content.
  */
-export async function ownerRoute(request: Request, params: Promise<{ id: string }>, handler: Handler, opts: { mutation: boolean }) {
+export async function ownerRoute(request: Request, params: Promise<{ id: string }>, handler: Handler, opts: { mutation: boolean; errorView?: (b: BusinessRecord) => Promise<unknown> }) {
   const correlationId = newCorrelationId();
   if (opts.mutation) {
     const bad = await checkMutation(request, correlationId);
@@ -23,7 +23,7 @@ export async function ownerRoute(request: Request, params: Promise<{ id: string 
   try {
     return await handler(business, correlationId);
   } catch (e) {
-    if (e instanceof ServiceError) return jsonError(e.status, e.code, e.message, correlationId, { view: await buildView(business) });
+    if (e instanceof ServiceError) return jsonError(e.status, e.code, e.message, correlationId, { view: await (opts.errorView ?? buildView)(business) });
     console.error(`[discovery] ${correlationId} unexpected error`);
     return jsonError(500, "INTERNAL", "Something went wrong on our side. Your conversation is saved.", correlationId);
   }

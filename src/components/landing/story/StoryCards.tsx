@@ -52,7 +52,7 @@ export function OperationCard({ index, className }: { index: number; className?:
       </span>
       <div className="min-w-0">
         <p className="text-[0.8125rem] font-semibold leading-tight text-ink">{op.title}</p>
-        <p className="mt-0.5 text-[0.75rem] font-light leading-snug text-muted">{op.detail}</p>
+        <p className="mt-0.5 text-[0.75rem] font-light leading-normal text-muted">{op.detail}</p>
       </div>
     </div>
   );

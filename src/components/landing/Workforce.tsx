@@ -53,7 +53,7 @@ function AgentCard({ agent, featured = false }: { agent: Agent; featured?: boole
           </ul>
         </div>
       )}
-      <p className="mt-auto pt-5 text-sm font-light leading-snug text-muted">
+      <p className="mt-auto pt-5 text-sm font-light leading-normal text-muted">
         <span className="font-medium text-ink">Boundary: </span>{agent.never}
       </p>
     </article>

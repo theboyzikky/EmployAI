@@ -251,7 +251,7 @@ export async function updateAgent(business: BusinessRecord, key: AgentKey, patch
   await repo.updateAgent(business.id, key, { definition: def, ...(patch.status ? { status: patch.status } : {}) });
 }
 
-/** The owner approves the team. Approval is recorded; nothing is deployed or executed. */
+/** The owner approves the team. Approval is recorded; nothing is executed. */
 export async function approveTeam(business: BusinessRecord): Promise<void> {
   const repo = discoveryRepository();
   const agents = await repo.listAgents(business.id);
@@ -263,7 +263,7 @@ export async function approveTeam(business: BusinessRecord): Promise<void> {
   for (const a of kept) await repo.updateAgent(business.id, a.key, { status: "approved", approved_at: now });
   await repo.appendMessage({
     business_id: business.id, role: "assistant",
-    content: `Team approved: ${kept.map(a => a.name).join(", ")}. Nothing runs yet. Workflows are generated, tested and deployed only with your approval in the next stage.`,
+    content: `Team approved: ${kept.map(a => a.name).join(", ")}. Nothing runs yet. Next, EmployAI builds the workflows for you to check and approve.`,
     meta: { kind: "note" },
   });
 }

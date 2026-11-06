@@ -112,8 +112,8 @@ flowchart LR
 ### Workflow generation and runner (steps 5–6)
 
 - **Templates, not free-form graphs.** Each executable capability brings a step template. The generator orders templates for the approved agents and fills in parameters (reorder threshold, quantities, approval threshold) from the profile and policy, or from an LLM suggestion when one is enabled. The output must match the workflow schema of 8 step types.
-- **Validator:** known step types only, references to approved agents only, no cycles, every `payment` preceded by a `security_check`, policy-required `approval` present, and step and run limits. An invalid workflow can't be deployed (AT-06).
-- **Deploy** stores an immutable version and enables the "Run demo order" trigger.
+- **Validator:** known step types only, references to approved agents only, no cycles, every `payment` preceded by a `security_check`, policy-required `approval` present, and step and run limits. Payment safety is checked on **every execution path**: each path to a `payment` must pass that payment's `security_check` (ALLOW or WARN) and then its `approval` check (approved), after the supplier is chosen. The payment's **beneficiary** (an approved supplier chosen by Procurement) is kept separate from its **channel** (the treasury contract, `request_payment`). An invalid workflow can't be approved (AT-06).
+- **Approve** (M3) records the owner's approval of a valid version and locks it; changing an approved version creates a new draft version, and approving it supersedes the old one. Approving runs nothing: the "Run demo order" trigger arrives with the runner in M4. The restaurant demo is the only runnable scenario; other industries keep discovery and the proposed team, labelled Preview.
 - **Runner** (in-process, async): it executes steps in order, persists each `run_step` before and after, applies per-step timeouts and one retry for transient errors only, and **never retries a payment** (it reconciles by request ID instead). On `approval` or WARN it sets the run to `waiting_approval` and returns. The approval endpoint resumes it.
 
 ### Agents in the restaurant scenario
@@ -203,8 +203,8 @@ stateDiagram-v2
   [*] --> Draft: generated from templates
   Draft --> Invalid: validator errors
   Invalid --> Draft: regenerate or edit
-  Draft --> Deployed: valid and owner deploys
-  Deployed --> Superseded: newer version deployed
+  Draft --> Approved: valid and owner approves (runs nothing)
+  Approved --> Superseded: newer version approved
 
   state "Run" as Run {
     [*] --> Running
@@ -218,7 +218,7 @@ stateDiagram-v2
     Interrupted --> Running: owner resumes
     Running --> Completed: end step
   }
-  Deployed --> Run: Run demo order
+  Approved --> Run: Run demo order (M4)
 ```
 
 ---
@@ -283,4 +283,4 @@ flowchart TB
 |---|---|---|
 | `testnet` | the order payment and revenue share, supplier payouts | "NEAR testnet" + explorer link |
 | `off_chain` | inference cost rows, blocked or rejected attempts (no transaction) | "Off-chain record" |
-| `test_run` | the workflow test step before deploy (no transaction) | "Test run — no transaction" |
+| `test_run` | payment steps in workflow test runs, before the treasury is live (no transaction) | "Test run — no transaction" |

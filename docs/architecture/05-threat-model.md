@@ -64,9 +64,9 @@ RPC / NearBlocks responses ───────►│ security gate (determinis
 
 | Scenario | Mitigations |
 |---|---|
-| A generated workflow with an unknown or unsafe step | Template-based generation, a schema with 8 known step types, and a validator requiring `security_check` before `payment` (AT-06) |
+| A generated workflow with an unknown or unsafe step | Template-based generation, a schema with 8 known step types, and a validator that checks **every execution path**: a `payment` is reachable only through its `security_check` (ALLOW or WARN) and then its `approval` check (approved). Invalid workflows can't be approved (AT-06). |
 | Runaway runs | No cycles, a step count limit, per-step and per-run timeouts, one retry for transient errors only |
-| Editing a deployed workflow | `steps` frozen by trigger; an edit means a new version, validated and redeployed |
+| Editing an approved workflow | `steps` frozen by trigger; an edit means a new draft version, validated and approved again |
 | A removed agent's step still runs | The validator and runner refuse steps whose agent isn't approved (AT-05) |
 
 ### T6 · Agent permission escalation

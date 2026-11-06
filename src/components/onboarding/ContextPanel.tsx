@@ -42,7 +42,7 @@ export function ContextPanel({ fields = DEFAULT_FIELDS }: { fields?: DiscoveryVi
               <span className="flex-1 text-sm font-medium text-ink">{f.label}</span>
               <StatusPill status={f.value ? f.status : f.skipped ? "skipped" : "unknown"} />
             </div>
-            {f.value && <p className="mt-1.5 line-clamp-3 pl-[28px] text-sm font-normal leading-snug text-muted">{f.value}</p>}
+            {f.value && <p className="mt-1.5 line-clamp-3 pl-[28px] text-sm font-normal leading-normal text-muted">{f.value}</p>}
           </li>
         ))}
       </ul>

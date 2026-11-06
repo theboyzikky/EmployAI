@@ -16,6 +16,8 @@ export type DiscoveryView = {
   /** 0 Introduce · 1 Discover · 2 Analyse · 3 Confirm · 4 Review team */
   stageIndex: number;
   businessName: string | null;
+  /** True only for the restaurant demo, the one runnable workflow scenario in this prototype. */
+  runnable: boolean;
   ready: boolean;
   pendingReply: boolean;
   messages: Array<{ id: string; role: "user" | "assistant"; kind: string; content: string; createdAt: string; mode: "offline-demo" | "live" | null; clientMessageId: string | null }>;

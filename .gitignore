@@ -37,6 +37,9 @@ neardev/
 # Hackathon submission payload contains personal data (HACKATHON.md)
 submission-payload*.json
 
+# Local M1 development data (discovery sessions before Supabase is connected)
+.data/
+
 # Supabase local state (migrations and seed SQL stay tracked)
 supabase/.branches/
 supabase/.temp/

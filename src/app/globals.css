@@ -1,0 +1,673 @@
+@import "tailwindcss";
+
+/* Dark-mode utilities follow the explicit theme attribute set by the theme toggle. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ============================================================================
+   EmployAI design system
+   Typography: Manrope 300 / 400 / 500 / 600 / 700 only (800 and 900 are removed below).
+
+   Colour source of truth (owner colour reference, 2026-11-05) — ONLY these hex values are used:
+     Violet  100 #EDE9F1 · 200 #E4DEEB · 300 #C6BBD5 · Secondary #482477 · 500 #41206B
+             600 #3A1D5F · 700 #361B59 · 800 #2B1647 · 900 #201036 · 1000 #190D2A
+     Black   100 #F6F6F6 · 200 #E6E6E6 · 300 #D9D9D9 · 400 #B0B0B0 · Primary #000000
+   Rules: Black is the dominant primary. Violet Secondary is the brand accent. Light violets → subtle
+   surfaces; dark violets → depth, dark surfaces, gradients, selected states. Neutrals → borders,
+   dividers, muted surfaces. Where readable secondary text needs a mid-grey that the palette does not
+   contain, it is Primary black at reduced opacity (light) / Black 400 (dark) — never a new hue.
+   (#FFFFFF is used only as the card surface and as text on black / violet.)
+   ========================================================================== */
+:root {
+  --violet-100: #ede9f1;
+  --violet-200: #e4deeb;
+  --violet-300: #c6bbd5;
+  --violet-secondary: #482477;
+  --violet-500: #41206b;
+  --violet-600: #3a1d5f;
+  --violet-700: #361b59;
+  --violet-800: #2b1647;
+  --violet-900: #201036;
+  --violet-1000: #190d2a;
+  --black-100: #f6f6f6;
+  --black-200: #e6e6e6;
+  --black-300: #d9d9d9;
+  --black-400: #b0b0b0;
+  --black-primary: #000000;
+}
+
+/* ---------- Light theme (default) ---------- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --eai-bg: var(--black-100);                 /* page background */
+  --eai-surface: #ffffff;                     /* cards, inputs, panels */
+  --eai-surface-2: var(--black-100);          /* inset rows inside cards */
+  --eai-border: var(--black-200);             /* borders, dividers */
+  --eai-fg: var(--black-primary);             /* headings, body, primary buttons */
+  --eai-on-fg: #ffffff;
+  --eai-muted: rgb(0 0 0 / 0.64);             /* secondary text: Primary at 64 % (≈ 6.3:1 on bg) */
+  --eai-subtle: var(--black-400);             /* disabled icons, placeholders */
+  --eai-accent: var(--violet-secondary);      /* accent text / icons */
+  --eai-accent-solid: var(--violet-secondary);/* accent surfaces: hover, avatar, selected */
+  --eai-accent-solid-deep: var(--violet-700); /* pressed / selected depth */
+  --eai-on-accent: #ffffff;
+  --eai-accent-soft: var(--violet-100);       /* soft accent surface */
+  --eai-accent-soft-2: var(--violet-200);     /* soft accent hover */
+  --eai-accent-line: var(--violet-300);       /* accent borders (soft) */
+  --eai-band: var(--black-primary);           /* Security band: black … */
+  --eai-band-deep: var(--violet-1000);        /* … into the deepest violet */
+  --eai-on-band: #ffffff;
+  --eai-success: #1f7a47;                     /* semantic status only */
+  --eai-danger: #b42318;                      /* semantic status only */
+  --eai-glow: rgb(72 36 119 / 0.12);          /* Violet Secondary glow */
+  --eai-glow-strong: rgb(72 36 119 / 0.20);
+  --eai-shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.10);
+  --eai-shadow-lift: 0 2px 4px rgb(0 0 0 / 0.05), 0 18px 40px -18px rgb(72 36 119 / 0.28);
+}
+
+/* ---------- Dark theme (DEFAULT): black and dark neutral surfaces; violet only for accents ---------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --eai-bg: var(--black-primary);
+  /* Dark neutrals: Primary black lifted with Black 100 (no hue), per owner request 2026-11-05. */
+  --eai-surface: color-mix(in srgb, var(--black-100) 7%, var(--black-primary));    /* ≈ #111 */
+  --eai-surface-2: color-mix(in srgb, var(--black-100) 11%, var(--black-primary));  /* ≈ #1b1b1b */
+  --eai-border: color-mix(in srgb, var(--black-100) 19%, var(--black-primary));     /* ≈ #2f2f2f */
+  --eai-fg: var(--black-100);
+  --eai-on-fg: var(--black-primary);
+  --eai-muted: var(--black-400);              /* ≈ 8.8:1 on the dark surface */
+  --eai-subtle: rgb(176 176 176 / 0.55);      /* Black 400 at reduced opacity */
+  --eai-accent: var(--violet-300);            /* readable violet on dark (≈ 11:1) */
+  --eai-accent-solid: var(--violet-secondary);
+  --eai-accent-solid-deep: var(--violet-500);
+  --eai-on-accent: var(--violet-100);
+  --eai-accent-soft: var(--violet-900);       /* dark violet surface */
+  --eai-accent-soft-2: var(--violet-800);
+  --eai-accent-line: var(--violet-700);
+  --eai-band: var(--black-primary);
+  --eai-band-deep: var(--violet-1000);
+  --eai-on-band: var(--black-100);
+  --eai-success: #5cc48d;
+  --eai-danger: #f2837a;
+  --eai-glow: rgb(72 36 119 / 0.22);
+  --eai-glow-strong: rgb(72 36 119 / 0.32);
+  --eai-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
+  --eai-shadow-lift: 0 18px 40px -18px rgb(0 0 0 / 0.8);
+}
+
+@theme inline {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+
+  /* Remove weights that are not allowed so they can't be used by accident. */
+  --font-weight-thin: initial;
+  --font-weight-extralight: initial;
+  --font-weight-extrabold: initial;
+  --font-weight-black: initial;
+
+  --color-canvas: var(--eai-bg);
+  --color-surface: var(--eai-surface);
+  --color-surface-2: var(--eai-surface-2);
+  --color-line: var(--eai-border);
+  --color-ink: var(--eai-fg);
+  --color-on-ink: var(--eai-on-fg);
+  --color-muted: var(--eai-muted);
+  --color-subtle: var(--eai-subtle);
+  --color-accent: var(--eai-accent);
+  --color-accent-solid: var(--eai-accent-solid);
+  --color-on-accent: var(--eai-on-accent);
+  --color-accent-soft: var(--eai-accent-soft);
+  --color-accent-soft-2: var(--eai-accent-soft-2);
+  --color-accent-line: var(--eai-accent-line);
+  --color-band: var(--eai-band);
+  --color-band-deep: var(--eai-band-deep);
+  --color-on-band: var(--eai-on-band);
+
+  /* Raw palette (owner reference) — for gradients and depth only. */
+  --color-violet-100: var(--violet-100);
+  --color-violet-200: var(--violet-200);
+  --color-violet-300: var(--violet-300);
+  --color-violet-secondary: var(--violet-secondary);
+  --color-violet-500: var(--violet-500);
+  --color-violet-600: var(--violet-600);
+  --color-violet-700: var(--violet-700);
+  --color-violet-800: var(--violet-800);
+  --color-violet-900: var(--violet-900);
+  --color-violet-1000: var(--violet-1000);
+  --color-black-100: var(--black-100);
+  --color-black-200: var(--black-200);
+  --color-black-300: var(--black-300);
+  --color-black-400: var(--black-400);
+  --color-success: var(--eai-success);
+  --color-danger: var(--eai-danger);
+
+  --radius-control: 999px;       /* buttons and chips: one radius everywhere */
+  --radius-input: 16px;
+  --radius-card: 20px;
+  --radius-panel: 28px;
+
+  --shadow-card: var(--eai-shadow-card);
+  --shadow-lift: var(--eai-shadow-lift);
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    text-rendering: optimizeLegibility;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-ink);
+  }
+  /* Anchor targets clear the sticky navbar. */
+  section[id] {
+    scroll-margin-top: 88px;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Buttons — consistent radius, padding and sizing everywhere
+   ------------------------------------------------------------------------- */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.875rem;           /* 46px */
+    padding-inline: 1.375rem;   /* 22px */
+    border-radius: var(--radius-control);
+    font-weight: 500;
+    font-size: 0.9375rem;       /* 15px */
+    line-height: 1;
+    white-space: nowrap;
+    transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease,
+      transform 180ms var(--ease-out-soft), box-shadow 180ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-lg {
+    height: 3.25rem;            /* 52px */
+    padding-inline: 1.625rem;
+    font-size: 1rem;
+  }
+  .btn-sm {
+    height: 2.5rem;
+    padding-inline: 1.125rem;
+    font-size: 0.875rem;
+  }
+  /* Primary: Black with white text (inverted in dark mode); hover → deep purple. */
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-on-ink);
+    border: 1px solid var(--color-ink);
+  }
+  .btn-primary:hover {
+    background: var(--color-accent-solid);
+    border-color: var(--color-accent-solid);
+    color: var(--color-on-accent);
+    box-shadow: 0 10px 24px -12px var(--eai-glow-strong);
+  }
+  /* Secondary: Black outline with black text; hover → deep purple accent. */
+  .btn-secondary {
+    background: transparent;
+    color: var(--color-ink);
+    border: 1px solid var(--color-ink);
+  }
+  .btn-secondary:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.45;
+    box-shadow: none;
+  }
+
+  /* Small round icon button (theme toggle, menu, back). */
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    flex: none;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease;
+  }
+  .icon-btn:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.375rem;
+    padding-inline: 0.875rem;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-ink);
+    transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease;
+  }
+  .chip:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+  /* Only for cards that are actually clickable (links/buttons). */
+  .card-interactive {
+    transition: transform 220ms var(--ease-out-soft), box-shadow 220ms ease, border-color 220ms ease;
+  }
+  .card-interactive:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lift);
+    border-color: var(--color-accent);
+  }
+
+  /* Static icon tile used in section cards (never swaps to Fill). */
+  .icon-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 1rem;
+    background: var(--color-accent-soft);
+    color: var(--color-ink);
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-control);
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    padding: 0.4375rem 0.875rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* Deep-purple emphasis for a few headline words. */
+  .text-accent-strong {
+    color: var(--color-accent);
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Hero background — layered, tasteful depth (deep purple at low strength only)
+   ------------------------------------------------------------------------- */
+.hero-bg {
+  background:
+    radial-gradient(60% 55% at 50% 0%, var(--color-accent-soft) 0%, transparent 70%),
+    radial-gradient(38% 42% at 8% 40%, var(--eai-glow) 0%, transparent 70%),
+    radial-gradient(38% 42% at 92% 55%, var(--eai-glow) 0%, transparent 70%),
+    radial-gradient(45% 30% at 50% 88%, var(--eai-glow) 0%, transparent 75%);
+}
+/* Faint dot grid, faded out towards the edges. */
+.hero-grid {
+  background-image: radial-gradient(circle at 1px 1px, var(--color-line) 1px, transparent 0);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(70% 60% at 50% 35%, #000 0%, transparent 75%);
+  mask-image: radial-gradient(70% 60% at 50% 35%, #000 0%, transparent 75%);
+  opacity: 0.7;
+}
+.hero-ring {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+/* Soft glow that sits behind the hero chat card. */
+.chat-glow {
+  background: radial-gradient(50% 50% at 50% 50%, var(--eai-glow-strong) 0%, transparent 70%);
+  filter: blur(24px);
+}
+/* Decorative hero accents: borderless, container-free symbols that sit IN the background.
+   Size, rotation (--r), opacity (--o) and depth blur (--b) vary per element. */
+.float-deco {
+  color: var(--color-accent);
+  opacity: var(--o, 0.4);
+  filter: blur(var(--b, 0px));
+}
+/* Optional soft violet halo behind a symbol — light, not a container. */
+.float-deco-halo::before {
+  content: "";
+  position: absolute;
+  inset: -55%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--eai-glow-strong), transparent);
+  z-index: -1;
+}
+/* Abstract accents: a hairline ring and a soft dot. */
+.deco-ring {
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+.deco-dot {
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+/* ----------------------------------------------------------------------------
+   Product film ("Watch your business come to life") — positions come from StoryFilm.tsx;
+   this block only defines surfaces, light and state styling.
+   ------------------------------------------------------------------------- */
+.film-camera { perspective: 1300px; }
+.film-el {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+.film-camera[data-layout="wide"] .film-el-biz { width: 320px; }
+.film-camera[data-layout="wide"] .film-el-op { width: 184px; }
+.film-camera[data-layout="wide"] .film-el-ag { width: 204px; }
+.film-camera[data-layout="wide"] .film-el-ag0 { width: 240px; }
+.film-camera[data-layout="wide"] .film-el-panel { width: 440px; }
+.film-camera[data-layout="wide"] .film-el-ring { width: 600px; }
+.film-camera[data-layout="narrow"] .film-el-biz { width: 280px; }
+.film-camera[data-layout="narrow"] .film-el-op { width: 158px; }
+.film-camera[data-layout="narrow"] .film-el-ag { width: 168px; }
+.film-camera[data-layout="narrow"] .film-agent-role { display: none; }
+.film-camera[data-layout="narrow"] .film-el-ag0 { width: 220px; }
+.film-camera[data-layout="narrow"] .film-el-panel { width: 340px; }
+.film-camera[data-layout="narrow"] .film-el-ring { width: 360px; }
+
+/* Restrained glass-like card: near-opaque surface, hairline border, soft shadow with a violet cast. */
+.film-card {
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 22px 44px -26px rgb(72 36 119 / 0.32);
+}
+.film-card-hero {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 30px 70px -30px var(--eai-glow-strong), 0 0 0 1px color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+[data-theme="dark"] .film-card {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.6), 0 26px 60px -28px rgb(0 0 0 / 0.9), inset 0 1px 0 rgb(246 246 246 / 0.04);
+}
+[data-theme="dark"] .film-card-hero {
+  box-shadow: 0 30px 80px -30px var(--eai-glow-strong), inset 0 1px 0 rgb(246 246 246 / 0.05);
+}
+.film-agent { transition: border-color 320ms ease, box-shadow 320ms ease; }
+.film-el[data-active="true"] .film-agent {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent), 0 24px 56px -22px var(--eai-glow-strong);
+}
+.film-agent-dot { transition: background-color 320ms ease; }
+.film-el[data-active="true"] .film-agent-dot { background: var(--color-success); }
+
+/* Business card footer: learning → coordinated */
+.film-learn-bar { transform: scaleX(var(--learn, 0)); }
+.film-biz-learning, .film-biz-done { transition: opacity 360ms ease; }
+.film-biz-done { opacity: 0; }
+[data-phase="done"] .film-biz-learning { opacity: 0; }
+[data-phase="done"] .film-biz-done { opacity: 1; }
+
+/* Steps: pending → active → done */
+.film-step { transition: opacity 320ms ease, background-color 320ms ease; }
+.film-step[data-state="pending"] { opacity: 0.45; }
+.film-step[data-state="active"] { background: var(--color-accent-soft); box-shadow: inset 0 0 0 1px var(--color-accent-line); }
+.film-step-check { opacity: 0; transition: opacity 320ms ease; }
+.film-step[data-state="done"] .film-step-check { opacity: 1; }
+.film-step[data-state="active"] .film-step-icon { background: var(--color-ink); color: var(--color-on-ink); }
+.film-decision {
+  border-color: var(--color-line);
+  color: var(--color-muted);
+  transition: background-color 320ms ease, color 320ms ease, border-color 320ms ease;
+}
+.film-step:not([data-state="pending"]) .film-decision[data-decision="ALLOW"] {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-success) 45%, transparent);
+  color: var(--color-success);
+}
+.film-decision-note { opacity: 0; transition: opacity 320ms ease; }
+.film-step:not([data-state="pending"]) .film-decision-note { opacity: 1; }
+
+/* Lines, finale ring and ambient light */
+.film-lines line {
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.film-ring {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);
+  background: radial-gradient(closest-side, var(--eai-glow-strong), transparent 70%);
+}
+.film-glow {
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--eai-glow-strong), transparent);
+  will-change: transform;
+}
+.film-glow-a { left: -22vmax; top: 4%; }
+.film-glow-b { right: -24vmax; top: 38%; opacity: 0.8; }
+.film-grid {
+  background-image: radial-gradient(circle at 1px 1px, var(--color-line) 1px, transparent 0);
+  background-size: 30px 30px;
+  -webkit-mask-image: radial-gradient(60% 55% at 50% 45%, #000 0%, transparent 80%);
+  mask-image: radial-gradient(60% 55% at 50% 45%, #000 0%, transparent 80%);
+  opacity: 0.6;
+  will-change: transform;
+}
+/* A soft out-of-focus orb that passes in front, faster than everything else (foreground plane). */
+.film-foreground {
+  right: 8%;
+  top: 70%;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent);
+  filter: blur(18px);
+  will-change: transform;
+}
+
+/* ----------------------------------------------------------------------------
+   Icon system — Phosphor Regular is the default EVERYWHERE.
+   The SAME icon's Fill appears ONLY inside an interactive element marked .icon-host
+   (button, link, clickable card) while it is hovered, focused, selected or active.
+   Static icons never swap. Disabled stays muted Regular.
+   ------------------------------------------------------------------------- */
+.eai-icon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--icon-size, 20px);
+  height: var(--icon-size, 20px);
+}
+.eai-icon > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transition: opacity 180ms ease;
+}
+.eai-icon > .eai-icon-fill {
+  opacity: 0;
+}
+.icon-host:hover .eai-icon[data-swap="true"] > .eai-icon-fill,
+.icon-host:focus-visible .eai-icon[data-swap="true"] > .eai-icon-fill,
+.icon-host:active .eai-icon[data-swap="true"] > .eai-icon-fill,
+.icon-host[aria-current="page"] .eai-icon[data-swap="true"] > .eai-icon-fill,
+.icon-host[aria-selected="true"] .eai-icon[data-swap="true"] > .eai-icon-fill,
+.icon-host[aria-pressed="true"] .eai-icon[data-swap="true"] > .eai-icon-fill,
+.icon-host[aria-expanded="true"] .eai-icon[data-swap="true"] > .eai-icon-fill,
+.icon-host[data-active="true"] .eai-icon[data-swap="true"] > .eai-icon-fill {
+  opacity: 1;
+}
+.icon-host:hover .eai-icon[data-swap="true"] > .eai-icon-regular,
+.icon-host:focus-visible .eai-icon[data-swap="true"] > .eai-icon-regular,
+.icon-host:active .eai-icon[data-swap="true"] > .eai-icon-regular,
+.icon-host[aria-current="page"] .eai-icon[data-swap="true"] > .eai-icon-regular,
+.icon-host[aria-selected="true"] .eai-icon[data-swap="true"] > .eai-icon-regular,
+.icon-host[aria-pressed="true"] .eai-icon[data-swap="true"] > .eai-icon-regular,
+.icon-host[aria-expanded="true"] .eai-icon[data-swap="true"] > .eai-icon-regular,
+.icon-host[data-active="true"] .eai-icon[data-swap="true"] > .eai-icon-regular {
+  opacity: 0;
+}
+/* Disabled: muted Regular, never swaps. */
+.eai-icon[data-state="disabled"],
+.icon-host:disabled .eai-icon,
+.icon-host[aria-disabled="true"] .eai-icon {
+  color: var(--color-subtle);
+}
+.eai-icon[data-state="disabled"] > .eai-icon-fill,
+.icon-host:disabled .eai-icon > .eai-icon-fill,
+.icon-host[aria-disabled="true"] .eai-icon > .eai-icon-fill {
+  opacity: 0 !important;
+}
+.eai-icon[data-state="disabled"] > .eai-icon-regular,
+.icon-host:disabled .eai-icon > .eai-icon-regular,
+.icon-host[aria-disabled="true"] .eai-icon > .eai-icon-regular {
+  opacity: 1 !important;
+}
+
+/* Theme toggle shows the icon for the theme it will switch TO (before hydration too). */
+.theme-icon-to-dark { display: inline-flex; }
+.theme-icon-to-light { display: none; }
+[data-theme="dark"] .theme-icon-to-dark { display: none; }
+[data-theme="dark"] .theme-icon-to-light { display: inline-flex; }
+
+/* ----------------------------------------------------------------------------
+   Motion — subtle, purposeful, and fully reduced under prefers-reduced-motion
+   ------------------------------------------------------------------------- */
+@keyframes eai-fade-up {
+  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes eai-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(var(--r, 0deg)); }
+  50% { transform: translate3d(0, -12px, 0) rotate(calc(var(--r, 0deg) - 4deg)); }
+}
+@keyframes eai-float-alt {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(var(--r, 0deg)); }
+  50% { transform: translate3d(6px, -9px, 0) rotate(calc(var(--r, 0deg) + 4deg)); }
+}
+@keyframes eai-thinking {
+  0%, 80%, 100% { opacity: 0.25; transform: translate3d(0, 0, 0); }
+  40% { opacity: 1; transform: translate3d(0, -2px, 0); }
+}
+.thinking-dot { animation: eai-thinking 1.2s ease-in-out infinite; }
+@keyframes eai-pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success) 35%, transparent); }
+  50% { box-shadow: 0 0 0 5px transparent; }
+}
+
+/* Entrance on load (hero) — runs once, never on keystrokes. */
+.enter {
+  animation: eai-fade-up 600ms var(--ease-out-soft) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+/* Scroll reveal (driven by <Reveal>, once per element). */
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0);
+  transition: opacity 520ms var(--ease-out-soft), transform 520ms var(--ease-out-soft);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.reveal[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Decorative floating icons: slow 6–10 s drift. */
+.float {
+  animation: eai-float var(--float-duration, 8s) ease-in-out infinite;
+  animation-delay: var(--float-delay, 0s);
+  will-change: transform;
+}
+.float-alt {
+  animation-name: eai-float-alt;
+}
+.status-dot {
+  animation: eai-pulse-dot 2.4s ease-in-out infinite;
+}
+
+/* Progressive workflow: steps light up in sequence once visible. */
+.flow-step {
+  opacity: 0.35;
+  transform: translate3d(0, 8px, 0);
+  transition: opacity 420ms var(--ease-out-soft), transform 420ms var(--ease-out-soft);
+  transition-delay: var(--step-delay, 0ms);
+}
+[data-visible="true"] .flow-step {
+  opacity: 1;
+  transform: none;
+}
+.flow-line {
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 1600ms var(--ease-out-soft) 200ms;
+}
+.flow-line-y {
+  transform-origin: top center;
+  transform: scaleY(0);
+  transition: transform 1600ms var(--ease-out-soft) 200ms;
+}
+[data-visible="true"] .flow-line { transform: scaleX(1); }
+[data-visible="true"] .flow-line-y { transform: scaleY(1); }
+
+/* FAQ disclosure */
+details.faq > summary { list-style: none; }
+details.faq > summary::-webkit-details-marker { display: none; }
+details.faq .faq-caret { transition: transform 220ms var(--ease-out-soft); }
+details.faq[open] .faq-caret { transform: rotate(180deg); }
+details.faq[open] .faq-body { animation: eai-fade-up 280ms var(--ease-out-soft) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  body { transition: none; }
+  .enter, details.faq[open] .faq-body { animation: none; }
+  .reveal, .flow-step {
+    transform: none !important;
+    transition: opacity 150ms linear;
+  }
+  .float, .status-dot { animation: none !important; }
+  .thinking-dot { animation: none !important; opacity: 0.6; }
+  .float { transform: rotate(var(--r, 0deg)); }
+  .flow-line, .flow-line-y { transition: none; transform: none !important; }
+  .card-interactive:hover, .btn:active:not(:disabled) { transform: none; }
+  .eai-icon > svg { transition: none; }
+}

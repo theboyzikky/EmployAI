@@ -1,0 +1,8 @@
+{
+  "name": "employai-spike-poc-a0",
+  "private": true,
+  "type": "module",
+  "description": "PoC-A0: offline validation of the AI provider layer (mock + nearai adapter against a local mock server). No real API calls.",
+  "scripts": { "test": "node --test --test-reporter=spec test/*.test.ts" },
+  "dependencies": { "openai": "7.50.0", "zod": "4.6.7" }
+}

@@ -1,5 +1,6 @@
 import "server-only";
 import { getAi } from "@/lib/ai";
+import { LockBusyError, withBusinessLock } from "@/lib/locks";
 import { normalizeBrands } from "@/lib/text";
 import { AiError, describeAiError, type AiErrorCode } from "@/lib/ai/errors";
 import { ANALYSIS_SYSTEM, DISCOVERY_SYSTEM, PROMPT_VERSION, renderProfile, renderTranscript } from "@/lib/ai/prompts";
@@ -24,13 +25,16 @@ export class ServiceError extends Error {
 export type AiFailure = { code: AiErrorCode | "UNKNOWN"; message: string };
 
 // In-process guards (single dev server). The Supabase version keeps the same contract.
-const busy = new Set<string>();
 const recentTurns = new Map<string, number[]>();
 
+/** M4 · D20: the shared business lock, fail-fast as before (409 TURN_IN_PROGRESS). */
 async function withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
-  if (busy.has(id)) throw new ServiceError("TURN_IN_PROGRESS", 409, "The consultant is still working on your last message.");
-  busy.add(id);
-  try { return await fn(); } finally { busy.delete(id); }
+  try {
+    return await withBusinessLock(id, fn, { mode: "try" });
+  } catch (e) {
+    if (e instanceof LockBusyError) throw new ServiceError("TURN_IN_PROGRESS", 409, "The consultant is still working on your last message.");
+    throw e;
+  }
 }
 
 function rateCheck(id: string) {
@@ -42,7 +46,7 @@ function rateCheck(id: string) {
 }
 
 const ownerIds = (messages: MessageRecord[]) => new Set(messages.filter(m => m.role === "user").map(m => m.id));
-const isApproved = (agents: AgentRecord[]) => agents.some(a => a.status === "approved");
+const isApproved = (agents: AgentRecord[]) => agents.some(a => a.status === "approved" || a.status === "paused");
 
 function toAiFailure(e: unknown): AiFailure {
   const code = e instanceof AiError ? e.code : "UNKNOWN";

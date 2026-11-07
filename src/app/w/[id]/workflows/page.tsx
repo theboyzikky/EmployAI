@@ -23,7 +23,7 @@ async function Workflows({ params }: { params: Promise<{ id: string }> }) {
   if (!business) notFound();
   const view = await buildWorkspaceView(business);
   return (
-    <WorkspaceShell businessId={view.businessId} businessName={view.businessName} tab="workflows">
+    <WorkspaceShell businessId={view.businessId} businessName={view.businessName} tab="workflows" killSwitch={!!business.kill_switch}>
       <WorkflowWorkspace initialView={view} />
     </WorkspaceShell>
   );

@@ -19,7 +19,7 @@ import { callWorkspace, when } from "./workspace-api";
 
 type Busy = "generating" | "saving" | "approving" | "discarding" | null;
 
-const NOT_RUNNING = "Not running — test runs arrive in the next stage. No real orders, messages or payments.";
+const NOT_RUNNING = "Approving doesn’t run anything. Test runs happen on the Runs tab, on fictional demo data: no real orders, messages or payments.";
 
 /**
  * Workflows tab (M3): build, check, adjust and APPROVE the restaurant workflow. Approving records the

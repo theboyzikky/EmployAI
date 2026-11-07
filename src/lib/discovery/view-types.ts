@@ -30,7 +30,7 @@ export type DiscoveryView = {
   confirmedAt: string | null;
   team: {
     agents: Array<{
-      key: AgentKey; name: string; status: "proposed" | "approved" | "removed"; executable: boolean; approvedAt: string | null;
+      key: AgentKey; name: string; status: "proposed" | "approved" | "removed" | "paused"; executable: boolean; approvedAt: string | null;
       role: string; purpose: string; tasks: Array<{ id: string; label: string; enabled: boolean }>;
       reasons: Array<{ title: string; detail: string; basis: "confirmed" | "supported" | "assumed"; evidence: ViewEvidence[] }>;
       collaboratesWith: string[]; tools: string[]; financialPermissions: string; prohibited: string[]; approvals: string[]; ownerNote: string;

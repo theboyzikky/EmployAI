@@ -22,7 +22,7 @@ async function Team({ params }: { params: Promise<{ id: string }> }) {
   if (!business) notFound();
   const view = await buildWorkspaceView(business);
   return (
-    <WorkspaceShell businessId={view.businessId} businessName={view.businessName} tab="team">
+    <WorkspaceShell businessId={view.businessId} businessName={view.businessName} tab="team" killSwitch={!!business.kill_switch}>
       <TeamOverview view={view} />
     </WorkspaceShell>
   );

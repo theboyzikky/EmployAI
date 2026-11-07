@@ -1,21 +1,23 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Icon, ArrowLeftIcon, FlowArrowIcon, UsersThreeIcon } from "@/components/icons";
+import { Icon, ArrowLeftIcon, FlowArrowIcon, PlayCircleIcon, UsersThreeIcon } from "@/components/icons";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cx } from "@/lib/cx";
 import { BusinessName } from "./BusinessName";
+import { KillSwitchControl } from "./KillSwitchControl";
 
-export type WorkspaceTab = "team" | "workflows";
+export type WorkspaceTab = "team" | "workflows" | "runs";
 
 /**
- * Minimal business workspace (M3): only the Team and Workflows tabs. The full dashboard (overview,
- * security, ledger) arrives in later milestones and is not shown, so nothing implies it exists.
+ * Minimal business workspace: Team, Workflows and (M4) test Runs, with the in-app kill switch in the
+ * header. The full dashboard (overview, security, ledger) arrives in later milestones and is not shown.
  */
-export function WorkspaceShell({ businessId, businessName, tab, children }: { businessId: string; businessName: string | null; tab: WorkspaceTab; children: ReactNode }) {
+export function WorkspaceShell({ businessId, businessName, tab, killSwitch, children }: { businessId: string; businessName: string | null; tab: WorkspaceTab; killSwitch: boolean; children: ReactNode }) {
   const tabs: Array<{ key: WorkspaceTab; label: string; href: string; icon: typeof UsersThreeIcon }> = [
     { key: "team", label: "Team", href: `/w/${businessId}/team`, icon: UsersThreeIcon },
     { key: "workflows", label: "Workflows", href: `/w/${businessId}/workflows`, icon: FlowArrowIcon },
+    { key: "runs", label: "Runs", href: `/w/${businessId}/runs`, icon: PlayCircleIcon },
   ];
   return (
     <div className="flex min-h-dvh flex-col bg-canvas">
@@ -31,7 +33,10 @@ export function WorkspaceShell({ businessId, businessName, tab, children }: { bu
                 that can't be mistaken for a name. */}
             <BusinessName businessId={businessId} initial={businessName} />
           </div>
-          <ThemeToggle />
+          <div className="flex flex-none items-center gap-1 sm:gap-2">
+            <KillSwitchControl businessId={businessId} initialActive={killSwitch} />
+            <ThemeToggle />
+          </div>
         </div>
         <nav aria-label="Workspace" className="mx-auto w-full max-w-[1320px] px-4 sm:px-6">
           <ul className="flex gap-1">

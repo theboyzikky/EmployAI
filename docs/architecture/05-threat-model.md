@@ -102,6 +102,28 @@ RPC / NearBlocks responses ───────►│ security gate (determinis
 - `new_supplier` scenario → `supplier-3` (approved, never paid) → **WARN** (`FIRST_INTERACTION`) → owner approves → paid.
 - Attack → `scam-supplier` (confirmed blocklist fixture with evidence) → **BLOCK** (`RECIPIENT_BLOCKLISTED`, with `RECIPIENT_NOT_APPROVED` and `UNTRUSTED_INSTRUCTION_SOURCE` also listed) → no signature, no transaction.
 
+**M4 · test-run gate (as built, [m4-proposal.md](m4-proposal.md) §7):**
+- **What is gated:** every tool call is checked against rules 1–3 (the agent is approved and not paused, a valid policy exists, and the tool is in both the agent's definition and the step). Payment requests are checked against all nine rules.
+- **Rule 4:** checks the fictional demo supplier registry, not RPC.
+- **Rule 5:** the blocklist is empty until M6.
+- **Rule 8 in M4:** `RECIPIENT_NOT_APPROVED`, `FIRST_INTERACTION`, `ABOVE_APPROVAL_THRESHOLD` and `UNTRUSTED_INSTRUCTION_SOURCE`. The on-chain signals (`NEW_ACCOUNT`, `LOW_ACTIVITY`, `AGE_UNKNOWN`, `CODE_CHANGED`, `UNKNOWN_CONTRACT`) start in M5. Decisions record `chain_checks: "not_run_in_test_mode"`.
+- **Trust signal:** the only one is the demo registry's `prior_payments`. Simulated test-run outcomes never build trust, so a supplier paid only in test runs is still a first interaction.
+- **Limits:** the per-payment limit is in illustrative NGN. The daily limit sums today's simulated outcomes.
+- **Authorisation:** created per decision. ALLOW → auto-approved; WARN → pending for the owner (15-minute expiry); BLOCK → none. It is used once, only with a matching action hash, and re-checked against the hard rules immediately before the simulated outcome is recorded.
+- **Kill switch:** invalidates pending authorisations.
+- **No side effects:** no signer, NEAR call, contract call or network request exists in run or security code. Static tests enforce this.
+- **M4 demo expectations** (fictional suppliers):
+
+  | Scenario | Supplier | Decision | Amount | Outcome |
+  |---|---|---|---|---|
+  | Standard | Lagos Fresh, prior payments | **ALLOW** | ₦42,780 | Simulated outcome |
+  | Large catering | Lagos Fresh | **WARN** `ABOVE_APPROVAL_THRESHOLD` | ₦56,580 | Waits for the owner |
+  | New supplier | Mainland Grains, approved, never paid | **WARN** `FIRST_INTERACTION` | ₦44,950 | Waits for the owner |
+  | Price spike | — | **BLOCK** `OVER_TX_LIMIT` | ₦263,500 | No outcome |
+  | Quiet day | — | No payment request | — | No reorder needed |
+
+  The attack scenario (blocklist) is M6.
+
 ## 4. Risk signal data sources
 
 Read-only checks against testnet on 2026-11-04.

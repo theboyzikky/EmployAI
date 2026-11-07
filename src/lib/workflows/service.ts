@@ -1,5 +1,8 @@
 import "server-only";
 import { ServiceError } from "@/lib/discovery/service";
+import { LockBusyError, withBusinessLock } from "@/lib/locks";
+import { FINGERPRINT_ALG, workflowFingerprint } from "@/lib/runs/fingerprint";
+import { ACTIVE_RUN_STATUSES } from "@/lib/runs/types";
 import { discoveryRepository, type BusinessRecord, type WorkflowRecord } from "@/lib/discovery/store";
 import { isRunnableIndustry, restaurantDemoScenario } from "./demo-data";
 import { DEFAULT_PARAMS, generateRestaurantWorkflow, type TeamMember } from "./generate";
@@ -11,11 +14,14 @@ import { validateWorkflow } from "./validate";
  * Nothing here executes a workflow, contacts anyone or moves money. Execution is M4.
  */
 
-const busy = new Set<string>();
+/** M4 · D20: the shared business lock, fail-fast as before (409 BUSY). */
 async function withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
-  if (busy.has(id)) throw new ServiceError("BUSY", 409, "Another change to these workflows is in progress.");
-  busy.add(id);
-  try { return await fn(); } finally { busy.delete(id); }
+  try {
+    return await withBusinessLock(id, fn, { mode: "try" });
+  } catch (e) {
+    if (e instanceof LockBusyError) throw new ServiceError("BUSY", 409, "Another change to this business is in progress. Try again in a moment.");
+    throw e;
+  }
 }
 
 export async function workflowContext(business: BusinessRecord) {
@@ -23,12 +29,13 @@ export async function workflowContext(business: BusinessRecord) {
   const runnable = isRunnableIndustry(business.business_type);
   const team: TeamMember[] = agents.map(a => ({
     key: a.key,
-    status: a.status,
+    // A paused agent (M4) is still part of the approved team; the pause is enforced when a run executes.
+    status: a.status === "paused" ? "approved" as const : a.status,
     // Only the restaurant scenario is runnable in this prototype; elsewhere every agent stays Preview.
     executable: a.executable && runnable,
     tasks: a.definition.tasks.map(t => ({ id: t.id, enabled: t.enabled })),
   }));
-  const teamApproved = agents.some(a => a.status === "approved");
+  const teamApproved = agents.some(a => a.status === "approved" || a.status === "paused");
   return { agents, team, runnable, teamApproved };
 }
 
@@ -101,9 +108,16 @@ export async function approveWorkflow(business: BusinessRecord, workflowId: stri
       await repo.updateWorkflow(business.id, wf.id, { validation });
       throw new ServiceError("WORKFLOW_INVALID", 409, "This workflow has failed checks, so it can't be approved.");
     }
+    // M4 · D18: never change which version is approved while a test run is using one.
+    const active = await repo.readState(s => ((s.runs ?? {})[business.id] ?? []).some(r => ACTIVE_RUN_STATUSES.includes(r.status)));
+    if (active) throw new ServiceError("RUN_IN_PROGRESS", 409, "A test run is in progress. Wait for it to finish, or stop it, before approving another version.");
     const now = new Date().toISOString();
     for (const old of list.filter(w => w.status === "approved")) await repo.updateWorkflow(business.id, old.id, { status: "superseded" });
-    await repo.updateWorkflow(business.id, wf.id, { status: "approved", approved_at: now, validation });
+    // M4 · D18: the approval fingerprint binds this approval to the exact version being approved.
+    await repo.updateWorkflow(business.id, wf.id, {
+      status: "approved", approved_at: now, validation,
+      approval_fingerprint: workflowFingerprint({ id: wf.id, version: wf.version, steps: wf.steps }), fingerprint_alg: FINGERPRINT_ALG,
+    });
   });
 }
 

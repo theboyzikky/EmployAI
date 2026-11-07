@@ -40,6 +40,7 @@ Status: **Revised 2026-11-05 to match [00-mvp-scope.md](00-mvp-scope.md). Awaiti
 | `POST /api/w/:id/team/propose` | — | `202`. Fails `409` if the profile isn't confirmed. |
 | `GET /api/w/:id/team` | — | `{ agents[] (definition, capability, executable, status) }` |
 | `PATCH /api/w/:id/team/:agentKey` | `{ status?: 'proposed'\|'removed', tasks?: {id: bool}, owner_note? }` | `200 { view }`. Tools, scopes and money permissions are **not** editable: they come from the catalogue. |
+| `PATCH /api/w/:id/team/:agentKey` (M4) | `{ status: 'paused'\|'approved' }` | `200 { runs }`. Pauses or resumes an **approved** agent. Its steps don't start while it's paused: the run pauses before them, and resuming the agent resumes any run that paused for it. A paused Finance Agent's payment requests are BLOCKed. |
 | `POST /api/w/:id/team/approve` | `{}` | `200 { view }` (added in M2). Records approval of every kept agent with a timestamp. **Runs nothing.** |
 
 ### Workflows and runs (steps 5–6)
@@ -51,16 +52,20 @@ Status: **Revised 2026-11-05 to match [00-mvp-scope.md](00-mvp-scope.md). Awaiti
 | `PATCH /api/w/:id/workflows/:wid` | `{ settings: { approval_threshold_ngn?, max_payment_ngn?, notify_customer?, notify_owner? } }` | `200 { view }` (M3). Only these settings are editable: illustrative NGN, no currency conversion (NEAR limits and fees are set in M5). A draft is rebuilt and re-validated; an approved version becomes a new draft version. `400` out of range; `409` on a superseded version. |
 | `POST /api/w/:id/workflows/:wid/approve` | `{}` | `200 { view }` (M3). Re-validates against the current team; `409 WORKFLOW_INVALID` if any check fails (the result is saved); `409 STATE_CONFLICT` if not a draft. Supersedes the previously approved version. **Runs nothing.** |
 | `POST /api/w/:id/workflows/:wid/discard` | `{}` | `200 { view }` (M3). Drafts only; approved versions stay on record. |
-| `POST /api/w/:id/runs` | `{ workflow_id, scenario: 'standard'\|'new_supplier'\|'attack' }` + `Idempotency-Key` | `202 { run_id }` |
-| `GET /api/runs/:runId` | — | `{ run (status, elapsed_ms), steps[] (agent, task, output, reasoning, status), decisions[], ledger[] }` (owner only) |
+| `POST /api/w/:id/runs` (M4) | `{ workflow_id, scenario: 'standard'\|'large_catering'\|'new_supplier'\|'price_spike'\|'quiet_day' }` + `Idempotency-Key` header (8–100 of `A–Z a–z 0–9 _ -`) | `200 { run, view, created, more: true }`. **Creates the run only; executes no step.** A repeated key returns the same run (`created: false`). `409` refusals, checked in this order: `PREVIEW_ONLY`, `DISCOVERY_INCOMPLETE`, `TEAM_NOT_APPROVED`, `KILL_SWITCH_ACTIVE`, `WORKFLOW_NOT_APPROVED`, `REAPPROVAL_REQUIRED`, `APPROVAL_FINGERPRINT_MISMATCH`, `WORKFLOW_INVALID`, `RUN_IN_PROGRESS`. The `attack` scenario is M6. |
+| `GET /api/w/:id/runs` (M4) | — | `200 { view }`: eligibility, scenarios with their expected decision, what the workflow addresses, agents and run history. **Read-only.** |
+| `GET /api/w/:id/runs/:runId` (M4) | — | `200 { run, view }`: the run with its steps (agent, hand-off, task, reasoning, tools, simulated labels), decisions, approval, ledger and activity. **Read-only:** never executes or persists anything. An expired approval or stale lease is shown, then persisted by the next mutating call. Replaces `GET /api/runs/:runId`. |
+| `POST /api/w/:id/runs/:runId/advance` (M4) | `{}` | `200 { run, view, advanced, more, settling }`. **The only operation that executes steps:** one bounded batch (≤ 5 steps, about 1.5 s) under the shared business lock. A run that isn't `running` is a safe no-op (`advanced: 0, more: false`). |
+| `POST /api/w/:id/runs/:runId/pause` and `/stop` (M4) | `{}` | `200 { run, view, finalised }`. The request is persisted at once, even during a batch, and takes effect no later than the end of the current step; stop refuses that step's commit. `409 INVALID_TRANSITION`. |
+| `POST /api/w/:id/runs/:runId/resume` (M4) | `{}` | `200 { run, view, more: true }`. From `paused` or `interrupted`; executes no step. `409` with `INVALID_TRANSITION`, `KILL_SWITCH_ACTIVE`, `AGENT_STILL_PAUSED` or `STEP_SETTLING`. |
 
 ### Security (step 7)
 
 | Method & path | Request | Response |
 |---|---|---|
 | `GET /api/w/:id/security` | — | `{ policy, policy_version, kill_switch, decisions[], approvals[] }` |
-| `POST /api/w/:id/approvals/:approvalId` | `{ decision: 'approve'\|'reject' }` | `200`, and the run resumes. Fails `409` if expired or invalidated. |
-| `POST /api/w/:id/kill-switch` | `{ active: boolean }` | `200 { active }`. Effect is immediate in-app: new runs refused, pending approvals invalidated, signing refused. The response includes `onchain_paused` read from the contract, and the owner command to pause or unpause on-chain. |
+| `POST /api/w/:id/approvals/:approvalId` | `{ decision: 'approve'\|'reject' }` | `200 { run, view, more: true }` (M4). Records the decision after re-checking it, and executes no step: the next advance uses the authorisation once. `409` with `APPROVAL_EXPIRED`, `APPROVAL_INVALIDATED` or `ALREADY_DECIDED`. |
+| `POST /api/w/:id/kill-switch` | `{ active: boolean }` | `200 { active }`. Effect is immediate in-app: new runs refused, pending approvals invalidated, signing refused. The response includes `onchain_paused` read from the contract, and the owner command to pause or unpause on-chain. **M4 as built:** `200 { view, finalised }`, in-app only; the on-chain pause and `onchain_paused` join in M5. The flag is persisted first, even during a batch, and active runs are then cancelled. |
 | `POST /api/security/evaluate` | `ActionRequest` | `200 Decision`. Used by the attack script and tests. The runner calls the same function in-process. |
 | `POST /api/blocklist` | `{ account_id, reason, evidence: { type: 'tx'\|'url'\|'text', ref } }` | `201 { status: 'reported' }`. The server computes `evidence_sha256`. |
 

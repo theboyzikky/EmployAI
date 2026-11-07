@@ -86,6 +86,8 @@ flowchart LR
 
 **Why a long-running Node server:** the demo run takes tens of seconds and pauses for approvals, so the runner lives in the server process and persists every step. It needs a process that stays alive: `next start` locally (the default under the zero-spend plan), or a free long-running host if one is approved. It can't be a serverless function with a short timeout. If the server restarts mid-run, the run is shown as `interrupted` with a **Resume** button. Nothing is silently lost, and payments are never repeated (request IDs are deduplicated on-chain).
 
+> **M4 correction (as built).** Test runs don't need a background process: the page asks the server to **advance** a run one bounded batch at a time (at most 5 steps or about 1.5 s per request, D11), and every step is persisted before the next request. A step cut off mid-execution is detected by its expired 15-second lease and shown as `interrupted`. The runner and the local JSON store are **single-process only**: one shared per-business lock plus the store's serialised write queue. This is not production or multi-instance concurrency safety ([m4-proposal.md](m4-proposal.md) §5).
+
 ---
 
 ## Component design
@@ -113,8 +115,14 @@ flowchart LR
 
 - **Templates, not free-form graphs.** Each executable capability brings a step template. The generator orders templates for the approved agents and fills in parameters (reorder threshold, quantities, approval threshold) from the profile and policy, or from an LLM suggestion when one is enabled. The output must match the workflow schema of 8 step types.
 - **Validator:** known step types only, references to approved agents only, no cycles, every `payment` preceded by a `security_check`, policy-required `approval` present, and step and run limits. Payment safety is checked on **every execution path**: each path to a `payment` must pass that payment's `security_check` (ALLOW or WARN) and then its `approval` check (approved), after the supplier is chosen. The payment's **beneficiary** (an approved supplier chosen by Procurement) is kept separate from its **channel** (the treasury contract, `request_payment`). An invalid workflow can't be approved (AT-06).
-- **Approve** (M3) records the owner's approval of a valid version and locks it; changing an approved version creates a new draft version, and approving it supersedes the old one. Approving runs nothing: the "Run demo order" trigger arrives with the runner in M4. The restaurant demo is the only runnable scenario; other industries keep discovery and the proposed team, labelled Preview.
-- **Runner** (in-process, async): it executes steps in order, persists each `run_step` before and after, applies per-step timeouts and one retry for transient errors only, and **never retries a payment** (it reconciles by request ID instead). On `approval` or WARN it sets the run to `waiting_approval` and returns. The approval endpoint resumes it.
+- **Approve** (M3) records the owner's approval of a valid version and locks it; changing an approved version creates a new draft version, and approving it supersedes the old one. Approving runs nothing. From M4 the approval also records a **fingerprint** (`sha256-canonical-json-v1` over the workflow id, version and steps), and only the current approved, fingerprinted version can run. Versions approved before M4 are kept unchanged but need re-approval (rebuild as a new draft, then approve). The restaurant demo is the only runnable scenario; other industries keep discovery and the proposed team, labelled Preview.
+- **Runner (M4, as built):**
+  - `startRun` only creates the run (with an `Idempotency-Key`). `advanceRun` is the **only** operation that executes steps: one bounded batch under the shared business lock.
+  - Each step is inserted as `running` with a lease. Its handler is pure and works on a copy, and the result commits in one atomic transaction. That commit re-checks the kill switch and stop (refused), pause (allowed, then paused) and the approval fingerprint.
+  - On WARN or above the threshold, the run waits for the owner (`waiting_approval`). The approval route records the decision, and the next advance re-checks and uses it.
+  - A payment is **never retried**: it is reconciled by `request_id`, and the outcome is a simulated, labelled ledger row with `tx_hash: null`.
+  - GET routes never execute or persist anything.
+  - Run statuses: `running`, `waiting_approval`, `paused`, `completed`, `blocked`, `rejected`, `failed`, `interrupted`, `cancelled`.
 
 ### Agents in the restaurant scenario
 
@@ -126,9 +134,13 @@ flowchart LR
 | Finance | check the budget and policy, create the payment request, templated explanation | A one-sentence explanation |
 | Orchestrator | the runner itself, which records every handoff and writes a templated run summary | A natural-language summary |
 
+> **M4 (as built):** all five agents run as **rule-based agents (offline)**, with no AI provider calls. Every tool call goes through a broker that checks the agent's definition, the step's data scopes and the gate (rules 1–3). Simulated tools are labelled in the run view: "Demo confirmation (not sent)", "Simulated quote from demo data (no supplier contacted)", "Shown in EmployAI (no message sent)". The LLM enhancements above are not part of M4.
+
 ### Security layer (step 7)
 
 Diagram 4 and [05-threat-model.md](05-threat-model.md). In short: `evaluate(action) → ALLOW | WARN | BLOCK` with reason codes. The kill switch is checked first, then hard rules (blocklist, caps, unknown account, scope), then soft rules (not approved, first interaction, new or unknown age, code changed, untrusted provenance, above the approval threshold). The decision is written once, and the signer wrapper consumes it once.
+
+> **M4 (as built):** test runs use the same `evaluate` with the doc 05 rule order, on fictional demo data. Decisions are stamped `chain_checks: "not_run_in_test_mode"`. The only trust signal is the demo registry's `prior_payments`, and simulated outcomes never count as prior payments. An authorisation is used once and bound to an action hash (business, run, request id, beneficiary, amount, method). There is no signer, NEAR call or contract in M4; those start in M5.
 
 ### NEAR (step 8)
 
@@ -211,14 +223,19 @@ stateDiagram-v2
     Running --> Running: step succeeded
     Running --> WaitingApproval: approval step or WARN
     WaitingApproval --> Running: owner approves (re-checked)
-    WaitingApproval --> Rejected: rejected, expired or kill switch
+    WaitingApproval --> Rejected: owner rejects or the approval expires
     Running --> Blocked: security BLOCK
     Running --> Failed: error after one retry
-    Running --> Interrupted: server restarted
+    Running --> Interrupted: step cut off (lease expired)
     Interrupted --> Running: owner resumes
+    Running --> Paused: owner pauses, or the next step's agent is paused
+    Paused --> Running: owner resumes, or the agent is resumed
+    Running --> Cancelled: owner stops, or kill switch
+    WaitingApproval --> Cancelled: owner stops, or kill switch
+    Paused --> Cancelled: owner stops, or kill switch
     Running --> Completed: end step
   }
-  Approved --> Run: Run demo order (M4)
+  Approved --> Run: Run demo order (Runs tab, M4)
 ```
 
 ---

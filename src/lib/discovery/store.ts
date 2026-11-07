@@ -9,6 +9,7 @@ import { emptyProfile, type ProfileDoc } from "./profile";
 import { emptyCaseFile } from "./casefile";
 import type { DemoScenario } from "@/lib/workflows/demo-data";
 import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workflows/schema";
+import type { ActivityEvent, ApprovalRecord, LedgerRecord, RunRecord, RunStepRecord, SecurityDecisionRecord } from "@/lib/runs/types";
 
 /*
  * Records mirror the APPROVED database design (docs/architecture/03-database-design.md), so the
@@ -32,6 +33,9 @@ export type BusinessRecord = {
   demo: boolean;
   /** Approved column. Restaurant DEMO data (fictional, labelled), kept apart from the owner's profile. */
   scenario_data?: DemoScenario | null;
+  /** M4 (doc 03 column): the in-app kill switch. Absent means off; existing records are never rewritten. */
+  kill_switch?: boolean;
+  kill_switch_changed_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -49,7 +53,8 @@ export type MessageRecord = {
   };
   created_at: string;
 };
-export type AgentStatus = "proposed" | "approved" | "removed";
+/** M4: `paused` (doc 03 value) stops the agent's steps; the agent stays part of the approved team. */
+export type AgentStatus = "proposed" | "approved" | "removed" | "paused";
 export type AgentRecord = {
   id: string;
   business_id: string;
@@ -74,6 +79,12 @@ export type WorkflowRecord = {
   validation: ValidationResult;  // jsonb
   status: WorkflowStatus;
   approved_at: string | null;
+  /**
+   * M4 · D18: sha256 of the canonical approved document, recorded at approval. Absent on approvals made
+   * before M4 (legacy): those are never back-filled and need the documented re-approval to run.
+   */
+  approval_fingerprint?: string | null;
+  fingerprint_alg?: string | null;
   created_at: string;
 };
 
@@ -89,8 +100,15 @@ export interface DiscoveryRepository {
   updateAgent(businessId: string, key: AgentKey, patch: Partial<Pick<AgentRecord, "definition" | "status" | "approved_at">>): Promise<AgentRecord>;
   listWorkflows(businessId: string): Promise<WorkflowRecord[]>;
   createWorkflow(rec: Omit<WorkflowRecord, "id" | "created_at">): Promise<WorkflowRecord>;
-  updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at">>): Promise<WorkflowRecord>;
+  updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at" | "approval_fingerprint" | "fingerprint_alg">>): Promise<WorkflowRecord>;
   deleteWorkflow(businessId: string, workflowId: string): Promise<void>;
+  /**
+   * M4: one read-modify-write on the LATEST stored state, through the same serialised write queue as
+   * every other write. `fn` must be synchronous; whatever it changes is written atomically.
+   */
+  transact<T>(fn: (s: DevState) => T): Promise<T>;
+  /** M4: read-only access to a fresh copy of the stored state (changes to it are never written). */
+  readState<T>(fn: (s: DevState) => T): Promise<T>;
 }
 
 export const OWNER_COOKIE = "eai_owner";
@@ -99,12 +117,29 @@ export const hashOwnerToken = (token: string) => createHash("sha256").update(tok
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const isSessionId = (id: string) => UUID_RE.test(id);
 
-type DevState = { version: 2; businesses: Record<string, BusinessRecord>; messages: Record<string, MessageRecord[]>; agents: Record<string, AgentRecord[]>; workflows?: Record<string, WorkflowRecord[]> };
+export type DevState = {
+  version: 2;
+  businesses: Record<string, BusinessRecord>;
+  messages: Record<string, MessageRecord[]>;
+  agents: Record<string, AgentRecord[]>;
+  workflows?: Record<string, WorkflowRecord[]>;
+  // M4 (all optional and additive: absent means empty; nothing existing is rewritten). Keyed by business
+  // id, except run_steps (keyed by run id). security_decisions, ledger_entries and activity_events are
+  // APPEND-ONLY: the run repository exposes no update or delete for them.
+  runs?: Record<string, RunRecord[]>;
+  run_steps?: Record<string, RunStepRecord[]>;
+  security_decisions?: Record<string, SecurityDecisionRecord[]>;
+  approval_requests?: Record<string, ApprovalRecord[]>;
+  ledger_entries?: Record<string, LedgerRecord[]>;
+  activity_events?: Record<string, ActivityEvent[]>;
+};
 
 /**
  * LOCAL DEVELOPMENT STORE — NOT PRODUCTION PERSISTENCE.
  * One JSON file in .data/ (git-ignored), atomic replace on every write, writes serialised within this
- * process. No multi-instance safety, no backups, no row-level security. It exists only until the
+ * process. SINGLE-PROCESS ONLY: no multi-instance or multi-process safety, no backups, no row-level
+ * security. M4 relies on this queue for control requests and compare-and-set writes (plan §5.6); those
+ * guarantees hold only inside one server process. It exists only until the
  * Supabase project is created, when a Supabase implementation of DiscoveryRepository replaces it.
  */
 export class FileDevStore implements DiscoveryRepository {
@@ -160,6 +195,16 @@ export class FileDevStore implements DiscoveryRepository {
       s.agents[b.id] = [];
       return b;
     });
+  }
+
+  /** M4: one serialised read-modify-write on the latest stored state (see the interface). */
+  transact<T>(fn: (s: DevState) => T): Promise<T> {
+    return this.mutate(fn);
+  }
+
+  /** M4: a fresh, private copy of the stored state; nothing done to it is written. */
+  async readState<T>(fn: (s: DevState) => T): Promise<T> {
+    return fn(await this.snapshot());
   }
 
   async getBusiness(id: string) {
@@ -225,7 +270,7 @@ export class FileDevStore implements DiscoveryRepository {
     });
   }
 
-  updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at">>) {
+  updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at" | "approval_fingerprint" | "fingerprint_alg">>) {
     return this.mutate(s => {
       const w = ((s.workflows ?? {})[businessId] ?? []).find(x => x.id === workflowId);
       if (!w) throw new Error("NOT_FOUND");
@@ -275,10 +320,12 @@ function migrateM1Sessions(dir: string): DevState {
   return state;
 }
 
-let repo: DiscoveryRepository | null = null;
+// One store instance per server process (on globalThis), so every route module shares ONE write queue.
+const REPO = Symbol.for("employai.discoveryRepository");
+const holder = globalThis as unknown as { [REPO]?: DiscoveryRepository | null };
 export function discoveryRepository(): DiscoveryRepository {
-  repo ??= new FileDevStore();
-  return repo;
+  holder[REPO] ??= new FileDevStore();
+  return holder[REPO]!;
 }
 /** Test hook: use an isolated store. */
-export function setDiscoveryRepository(r: DiscoveryRepository | null) { repo = r; }
+export function setDiscoveryRepository(r: DiscoveryRepository | null) { holder[REPO] = r; }

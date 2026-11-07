@@ -22,7 +22,7 @@ export async function latestUnfinished(): Promise<BusinessRecord | null> {
   const repo = discoveryRepository();
   for (const b of await repo.listBusinessesByOwner(hashOwnerToken(token))) {
     const agents = await repo.listAgents(b.id);
-    if (!agents.some(a => a.status === "approved")) return b;
+    if (!agents.some(a => a.status === "approved" || a.status === "paused")) return b;   // a paused agent is still on the approved team
   }
   return null;
 }

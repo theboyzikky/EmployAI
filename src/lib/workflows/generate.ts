@@ -99,7 +99,7 @@ export function generateRestaurantWorkflow(team: TeamMember[], params: Params = 
           tools: tools("finance").filter(t => t !== "request_payment"), reads: ["budget", "purchase_proposals"], writes: ["payment_requests"], next: {},
         });
         const sec: Step = { id: "security_check", type: "security_check", title: "Security check on the payment", subject: "payment",
-          description: "Deterministic gate: ALLOW, WARN (needs your approval) or BLOCK. Built in M5; in test runs it is simulated and labelled.", next: {} };
+          description: "Deterministic gate: ALLOW, WARN (needs your approval) or BLOCK. Test runs use fictional demo data; on-chain checks start in the next stage.", next: {} };
         chain(sec, "allow");
         const appr: Step = { id: "owner_approval", type: "approval", title: "Your approval when needed", rule: "over_threshold_or_warn", subject: "payment",
           description: "Pauses for you when the amount is over your approval threshold or the security check says WARN.", next: {} };

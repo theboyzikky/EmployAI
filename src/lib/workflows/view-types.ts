@@ -5,7 +5,7 @@ import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "./schema";
 
 export type WorkspaceAgent = {
   key: AgentKey; name: string; role: string; purpose: string;
-  status: "proposed" | "approved" | "removed"; runnable: boolean;
+  status: "proposed" | "approved" | "removed" | "paused"; runnable: boolean;
   tasks: Array<{ id: string; label: string; enabled: boolean }>;
   tools: string[]; financialPermissions: string; prohibited: string[];
 };

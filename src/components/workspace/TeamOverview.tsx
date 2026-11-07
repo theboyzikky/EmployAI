@@ -13,7 +13,7 @@ export function TeamOverview({ view }: { view: WorkspaceView }) {
         <h1 className="text-xl font-semibold text-ink">Your AI team</h1>
         <p className="mt-1 text-sm font-light text-muted">
           {view.teamApproved
-            ? `Approved on ${new Date(view.teamApprovedAt!).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}. Agents describe work only; none of them is running.`
+            ? `Approved on ${new Date(view.teamApprovedAt!).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}. Agents act only in test runs, on fictional demo data, from the Runs tab.`
             : "Your team hasn't been approved yet."}
         </p>
         {!view.runnable && (
@@ -36,8 +36,8 @@ export function TeamOverview({ view }: { view: WorkspaceView }) {
                 <p className="text-sm font-medium text-muted">{a.role}</p>
               </div>
               <span className={cx("whitespace-nowrap rounded-full px-2 py-0.5 text-[0.6875rem] font-semibold",
-                a.runnable ? "text-success ring-1 ring-success/40" : "bg-surface-2 text-muted ring-1 ring-line")}>
-                {a.status === "approved" ? (a.runnable ? "Approved · not running" : "Approved · Preview") : "Proposed"}
+                a.runnable && a.status === "approved" ? "text-success ring-1 ring-success/40" : "bg-surface-2 text-muted ring-1 ring-line")}>
+                {a.status === "paused" ? "Paused" : a.status === "approved" ? (a.runnable ? "Approved" : "Approved · Preview") : "Proposed"}
               </span>
             </div>
             <p className="mt-2 text-sm text-ink">{a.purpose}</p>

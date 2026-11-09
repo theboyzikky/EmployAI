@@ -30,6 +30,8 @@ export type RunRecord = {
   mode: RunMode;
   /** M5: the armed testnet batch this run counts against (testnet only). */
   batch_id?: string | null;
+  /** M5: set when the owner asked to retry a payment proven failed or expired (R12, §11.1). */
+  payment_retry?: { of_attempt: string; mode: Exclude<SignMode, "new">; requested_at: string } | null;
   scenario: ScenarioKey;
   status: RunStatus;
   trigger: { source: "demo_order" | "demo_stock_check"; requested_by: "owner" };
@@ -212,8 +214,19 @@ export const TERMINAL_ATTEMPT_STATUSES: readonly AttemptStatus[] = ["confirmed",
 /** A signature is persisted and the transaction may reach the chain: it is NEVER signed again. */
 export const SIGNED_ATTEMPT_STATUSES: readonly AttemptStatus[] = ["signed", "submitting", "unknown"];
 
+/**
+ * How an attempt may be signed: "new" (no on-chain record may exist), "retry_after_failed" (the contract's
+ * record is Failed with identical details), "resubmit_after_expiry" (the earlier signed transaction's
+ * validity window closed by block height and the contract has no record).
+ */
+export type SignMode = "new" | "retry_after_failed" | "resubmit_after_expiry";
+
 export type PaymentAttempt = {
   id: string;
+  /** M5 retry: absent means "new" (every attempt before retries existed). */
+  sign_mode?: SignMode;
+  retry_of?: string | null;
+  previous_expires_after_height?: number | null;
   business_id: string;
   run_id: string;
   request_id: string;

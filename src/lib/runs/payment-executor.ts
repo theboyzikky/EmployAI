@@ -23,8 +23,14 @@ import { TERMINAL_ATTEMPT_STATUSES, type AttemptStatus, type PaymentAttempt } fr
 const INSTANCE = randomUUID();
 export const ATTEMPT_LEASE_MS = 60_000;
 export const MAX_PRE_SIGN_ERRORS = 3;
-/** B0-7: this explorer URL format is UNVERIFIED; the ledger's proof is the hash and the stored outcome. */
-export const EXPLORER_TX_URL = "https://testnet.nearblocks.io/txns/";
+/**
+ * Explorer links (B0-7, verified 2026-11-09 with the B3 transaction): NEAR Rocks (by FastNear) shows the
+ * full transaction; NearBlocks is the format the official NEAR explorer selector links to, but it puts a
+ * bot check in front of automated browsers. The ledger's proof is still the hash and the stored outcome.
+ */
+export const EXPLORER_TX_URL = "https://testnet.near.rocks/tx/";
+export const NEARBLOCKS_TX_URL = "https://testnet.nearblocks.io/txns/";
+export const explorerLinks = (txHash: string) => ({ primary: `${EXPLORER_TX_URL}${txHash}`, secondary: `${NEARBLOCKS_TX_URL}${txHash}` });
 
 const addMs = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
 const isTerminal = (s: AttemptStatus) => TERMINAL_ATTEMPT_STATUSES.includes(s);
@@ -130,7 +136,7 @@ async function fromPrepared(ctx: Ctx, a: PaymentAttempt): Promise<Next> {
   }
 
   // 3 · sign (the signer re-checks readiness, recipient, limits, duplicates and, LAST, the key)
-  const res = await chain.sign({ requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto });
+  const res = await chain.sign({ requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto, mode: a.sign_mode ?? "new", previousExpiresAfterHeight: a.previous_expires_after_height ?? null });
   if (!res.ok) {
     if (res.transient) return preSignFailure(ctx, res.code, "The NEAR testnet couldn't be reached while preparing the signature; nothing was signed.");
     await runTransact(tx => abort(tx, ctx, ["signing"], res.code, `The signer refused: ${res.detail}. Nothing was signed.`));

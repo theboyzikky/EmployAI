@@ -2,15 +2,18 @@
 // Covers: approval always required and bound to the exact payment, fresh checks before signing,
 // write-ahead before broadcast, unknown outcomes reconciled (never blind retries), restart recovery
 // that never re-signs a persisted transaction, kill switch at each point, concurrency, and the views.
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { setDiscoveryRepository } from "@/lib/discovery/store";
 import { setPaymentChainForTests, type ChainVerdict, type PaymentChain, type ReconcileOutcome, type SignOutcome } from "@/lib/runs/payment-port";
 import { runRead, runTransact } from "@/lib/runs/repo";
-import { advanceRun, armTestnetBatch, decideApproval, nearToYocto, requestControl, setKillSwitch, startRun } from "@/lib/runs/runner";
+import { advanceRun, armTestnetBatch, decideApproval, nearToYocto, requestControl, requestPaymentRetry, setKillSwitch, startRun } from "@/lib/runs/runner";
 import type { ScenarioKey } from "@/lib/runs/types";
 import { buildRunView } from "@/lib/runs/view";
 import { readyRestaurant, tempStore } from "./helpers/run-fixture";
 import { blockedFetch } from "./setup";
+
+// Each test drives a whole run through the file store many times: allow for a loaded machine.
+vi.setConfig({ testTimeout: 20_000 });
 
 const T = "treasury.employai-demo.testnet";
 const AGENT = "finance-agent.employai-demo.testnet";
@@ -31,6 +34,7 @@ type FakeState = {
 function fakeChain(over: Partial<FakeState> = {}) {
   const calls = { precheck: 0, npv: 0, sign: 0, broadcast: 0, reconcile: 0 };
   const sent: string[] = [];
+  const signInputs: Array<Parameters<PaymentChain["sign"]>[0]> = [];
   const st: FakeState = {
     failures: [], precheckThrows: false, spent: "0", npv: "npv-1",
     sign: async n => ({ ok: true, signed: { txHash: `tx-${n}`, signedTxBase64: `bytes-${n}`, nonce: `${276931238000000 + n}`, publicKey: "ed25519:fake", blockHash: "blockhash", signedBlockHeight: 1_000, validityPeriodBlocks: 86_400, expiresAfterHeight: 87_400 } }),
@@ -47,12 +51,12 @@ function fakeChain(over: Partial<FakeState> = {}) {
       return { failures: st.failures, onchainSpentTodayYocto: st.spent, nearPolicyVersion: st.npv, onchainLimits: { maxPerTxYocto: "100000000000000000000000", dailyCapYocto: "250000000000000000000000" }, checkedAt: new Date().toISOString() };
     },
     async nearPolicyVersion() { calls.npv++; return st.npv; },
-    async sign() { calls.sign++; lastSigned = calls.sign; return st.sign(calls.sign); },
+    async sign(input) { calls.sign++; signInputs.push(input); lastSigned = calls.sign; return st.sign(calls.sign); },
     async broadcast(i) { calls.broadcast++; sent.push(i.signedTxBase64); return st.broadcast(i.signedTxBase64, lastSigned || 1); },
     async reconcile() { calls.reconcile++; return st.reconcile.shift() ?? { action: "wait", reason: "request is Pending on-chain; never resubmit" }; },
   };
   setPaymentChainForTests(chain);
-  return { chain, calls, sent, st };
+  return { chain, calls, sent, st, signInputs };
 }
 
 beforeEach(() => setPaymentChainForTests(null));
@@ -377,6 +381,104 @@ describe("outcomes: verified success only; unknown is reconciled, never retried 
     const s = await state(businessId, runId);
     expect(s.attempts[0]).toMatchObject({ status: "unknown", error: { code: "OUTCOME_UNKNOWN" } });
     expect(s.ledger).toEqual([]);
+  });
+});
+
+describe("manual retry (R12, §11.1): proven failures only, fresh checks and a NEW approval", () => {
+  const failedPayout = async (_b: string, n: number) => ({ outcome: "failed_onchain", kind: "transfer_failed", detail: "refunded", txHash: `tx-${n}`, evidence: {} }) as ChainVerdict;
+
+  test("a refunded payout can be retried: fresh security check, new approval, retry mode, then paid once", async () => {
+    const f = fakeChain({ broadcast: failedPayout });
+    const { businessId, workflow } = await setup();
+    const { runId } = await startTestnet(businessId, workflow.id);
+    await approved(businessId, runId);
+    let s = await toEnd(businessId, runId);
+    expect(s.run).toMatchObject({ status: "failed", end_reason: "PAYOUT_FAILED" });
+    const decisionsBefore = s.decisions.length;
+    await requestPaymentRetry(businessId, runId);
+    s = await toApproval(businessId, runId);
+    expect(s.run.status).toBe("waiting_approval");                       // a NEW approval is required
+    expect(s.decisions.length).toBe(decisionsBefore + 1);                 // a fresh gate decision (with fresh chain checks)
+    expect(s.decisions.at(-1)!.decision).not.toBe("BLOCK");               // its own earlier decision isn't a "duplicate"
+    expect(s.approvals.filter(a => a.status === "pending")).toHaveLength(1);
+    expect(f.calls.sign).toBe(1);                                         // nothing signed before the new approval
+    f.st.broadcast = async (_b, n) => ({ outcome: "confirmed", txHash: `tx-${n}`, gasBurnt: 1, evidence: {} });
+    await decideApproval(businessId, s.approvals.at(-1)!.id, "approve");
+    s = await toEnd(businessId, runId);
+    expect(s.run.status).toBe("completed");
+    expect(f.signInputs.map(i => i.mode)).toEqual(["new", "retry_after_failed"]);
+    expect(s.attempts.map(a => [a.status, a.sign_mode ?? "new"])).toEqual([["failed_onchain", "new"], ["confirmed", "retry_after_failed"]]);
+    expect(s.attempts[1].retry_of).toBe(s.attempts[0].id);
+    expect(s.ledger.map(l => (l as { tx_status: string }).tx_status)).toEqual(["failed", "confirmed"]);   // one success, the failure kept
+  });
+
+  test("an expired-unexecuted payment is resubmitted only with the old validity window passed to the signer", async () => {
+    const f = fakeChain({ broadcast: async () => ({ outcome: "unknown", reason: "TIMEOUT" }) });
+    const { businessId, workflow } = await setup();
+    const { runId } = await startTestnet(businessId, workflow.id);
+    await approved(businessId, runId);
+    await advanceRun(businessId, runId);
+    f.st.reconcile.push({ action: "expired_unexecuted", detail: "window closed, no record" });
+    await toEnd(businessId, runId);
+    await requestPaymentRetry(businessId, runId);
+    const s = await toApproval(businessId, runId);
+    f.st.broadcast = async (_b, n) => ({ outcome: "confirmed", txHash: `tx-${n}`, gasBurnt: 1, evidence: {} });
+    await decideApproval(businessId, s.approvals.at(-1)!.id, "approve");
+    const end = await toEnd(businessId, runId);
+    expect(end.run.status).toBe("completed");
+    expect(f.signInputs.at(-1)).toMatchObject({ mode: "resubmit_after_expiry", previousExpiresAfterHeight: 87_400 });
+  });
+
+  test("never for an uncertain outcome: an unknown attempt can't be retried (it reconciles)", async () => {
+    fakeChain({ broadcast: async () => ({ outcome: "unknown", reason: "TIMEOUT" }) });
+    const { businessId, workflow } = await setup();
+    const { runId } = await startTestnet(businessId, workflow.id);
+    await approved(businessId, runId);
+    await advanceRun(businessId, runId);
+    await expect(requestPaymentRetry(businessId, runId)).rejects.toMatchObject({ code: "RETRY_NOT_ALLOWED" });
+  });
+
+  test("never for a contract rejection, and never after a success", async () => {
+    fakeChain({ broadcast: async () => ({ outcome: "failed_onchain", kind: "contract_rejected", detail: "Paused", txHash: "tx-1", evidence: {} }) });
+    const a = await setup();
+    const r1 = await startTestnet(a.businessId, a.workflow.id);
+    await approved(a.businessId, r1.runId);
+    await toEnd(a.businessId, r1.runId);
+    await expect(requestPaymentRetry(a.businessId, r1.runId)).rejects.toMatchObject({ code: "RETRY_NOT_ALLOWED" });
+    fakeChain();
+    const b = await setup();
+    const r2 = await startTestnet(b.businessId, b.workflow.id);
+    await approved(b.businessId, r2.runId);
+    await toEnd(b.businessId, r2.runId);
+    await expect(requestPaymentRetry(b.businessId, r2.runId)).rejects.toMatchObject({ code: "RETRY_NOT_ALLOWED" });
+  });
+
+  test("refused while the kill switch is on, or without an armed batch with capacity", async () => {
+    fakeChain({ broadcast: failedPayout });
+    const { businessId, workflow } = await setup({ payments: 1, near: "0.1" });
+    const { runId } = await startTestnet(businessId, workflow.id);
+    await approved(businessId, runId);
+    await toEnd(businessId, runId);
+    await expect(requestPaymentRetry(businessId, runId)).rejects.toMatchObject({ code: "BATCH_NOT_ARMED" });   // batch used up
+    await armTestnetBatch(businessId, { batchRef: "B4", maxPayments: 1, maxTotalNear: "0.1", expiresInMinutes: 30 });
+    await setKillSwitch(businessId, true);
+    await expect(requestPaymentRetry(businessId, runId)).rejects.toMatchObject({ code: "KILL_SWITCH_ACTIVE" });
+  });
+
+  test("at most three attempts per payment", async () => {
+    const f = fakeChain({ broadcast: failedPayout });
+    const { businessId, workflow } = await setup({ payments: 5, near: "0.25" });
+    const { runId } = await startTestnet(businessId, workflow.id);
+    await approved(businessId, runId);
+    await toEnd(businessId, runId);
+    for (let i = 0; i < 2; i++) {
+      await requestPaymentRetry(businessId, runId);
+      const s = await toApproval(businessId, runId);
+      await decideApproval(businessId, s.approvals.at(-1)!.id, "approve");
+      await toEnd(businessId, runId);
+    }
+    expect(f.calls.sign).toBe(3);
+    await expect(requestPaymentRetry(businessId, runId)).rejects.toMatchObject({ code: "RETRY_NOT_ALLOWED" });
   });
 });
 

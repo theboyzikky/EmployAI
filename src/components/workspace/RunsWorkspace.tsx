@@ -116,6 +116,11 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
       : { batch_ref: arm.ref.trim(), max_payments: Number(arm.payments), max_total_near: arm.near.trim(), expires_in_minutes: Number(arm.minutes) });
   };
   const checkPayment = () => { if (run) void pump(run.run.id); };
+  const retryPayment = async () => {
+    if (!run) return;
+    const r = await act("retry", `${base}/runs/${run.run.id}/payment/retry`, {});
+    if (r.ok && r.run) void pump(r.run.run.id);
+  };
   const decide = async (decision: "approve" | "reject") => {
     if (!run?.approval) return;
     const r = await act(decision, `${base}/approvals/${run.approval.id}`, { decision });
@@ -219,7 +224,7 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
 
       {error && <p role="alert" className="rounded-xl bg-surface px-4 py-3 text-sm font-medium text-danger ring-1 ring-line">{error}</p>}
 
-      {run && <RunPanel run={run} busy={busy} confirm={confirm} setConfirm={setConfirm} onDecide={decide} onControl={control} onCheckPayment={checkPayment} reveal={reveal} />}
+      {run && <RunPanel run={run} busy={busy} confirm={confirm} setConfirm={setConfirm} onDecide={decide} onControl={control} onCheckPayment={checkPayment} onRetryPayment={retryPayment} reveal={reveal} />}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <section aria-labelledby="history-title" className="card px-5 py-4">
@@ -256,9 +261,9 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
   );
 }
 
-function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, onCheckPayment, reveal }: {
+function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, onCheckPayment, onRetryPayment, reveal }: {
   run: RunView; busy: string | null; confirm: "approve" | "reject" | "stop" | null; setConfirm: (c: "approve" | "reject" | "stop" | null) => void;
-  onDecide: (d: "approve" | "reject") => void; onControl: (c: "pause" | "resume" | "stop") => void; onCheckPayment: () => void; reveal: number;
+  onDecide: (d: "approve" | "reject") => void; onControl: (c: "pause" | "resume" | "stop") => void; onCheckPayment: () => void; onRetryPayment: () => void; reveal: number;
 }) {
   const r = run.run;
   const active = ACTIVE.includes(r.status);
@@ -373,6 +378,14 @@ function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, onCheck
       )}
 
       {run.payment && <PaymentStatus payment={run.payment} busy={busy} onCheck={onCheckPayment} />}
+      {run.retry && (
+        <div className="mt-3 rounded-xl border border-accent-line bg-accent-soft px-3 py-2.5 text-sm">
+          {run.retry.allowed ? (<>
+            <p className="text-ink">This payment is proven not paid (the contract records it as failed, or it expired without executing). You can retry it: the security check runs again, and you approve the payment again before anything is signed.</p>
+            <button type="button" className="btn btn-primary btn-sm mt-2" disabled={!!busy} onClick={onRetryPayment}>{busy === "retry" ? <Spinner /> : "Retry payment"}</button>
+          </>) : <p className="text-muted">Retry not available: {run.retry.reason}</p>}
+        </div>
+      )}
 
       {run.ledger.length > 0 && (
         <div className="mt-3 rounded-xl bg-surface-2 px-3 py-2.5 text-sm">
@@ -380,7 +393,7 @@ function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, onCheck
             <p key={l.id} className="flex flex-wrap items-center gap-2 text-ink"><Icon icon={ReceiptIcon} size={16} swap={false} className="text-accent" />
               {l.amountText} to {l.counterparty}{l.supplier ? ` (${l.supplier})` : ""} <span className="rounded-full bg-surface px-2 py-0.5 text-[0.6875rem] font-semibold text-ink ring-1 ring-line">{l.label}</span>
               {l.txHash && <span className="break-all font-mono text-[0.6875rem] text-muted">{l.txHash}</span>}
-              {l.explorerUrl && <a href={l.explorerUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent underline">Explorer link (format unverified)</a>}</p>
+              {l.explorerUrl && <a href={l.explorerUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent underline">View on NEAR Rocks</a>}</p>
           ))}
         </div>
       )}
@@ -442,7 +455,7 @@ function PaymentStatus({ payment: p, busy, onCheck }: { payment: NonNullable<Run
       {p.error && <p className="mt-1 text-xs text-danger">{p.error.message} ({p.error.code})</p>}
       {p.lastCheck && !final && <p className="mt-1 text-xs text-muted">Last check: {p.lastCheck.detail}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-3">
-        {p.explorerUrl && p.status === "confirmed" && <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent underline">Explorer link (format unverified)</a>}
+        {p.explorerUrl && p.status === "confirmed" && <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent underline">View on NEAR Rocks</a>}
         {!final && <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={onCheck}>Check payment status</button>}
       </div>
     </div>

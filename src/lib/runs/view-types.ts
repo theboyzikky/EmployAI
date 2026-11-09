@@ -71,6 +71,8 @@ export type RunView = {
   approval: RunApprovalView | null;
   ledger: Array<{ id: string; mode: RunMode; amountText: string; counterparty: string; supplier: string | null; label: string; txHash: string | null; explorerUrl: string | null; status: string; occurredAt: string }>;
   payment: PaymentAttemptView | null;
+  /** M5 · whether the owner may retry this run's payment (proven failure or expiry only). */
+  retry: { allowed: boolean; reason: string | null } | null;
   events: Array<{ id: string; actor: string; type: string; subject: string; status: string; createdAt: string }>;
   more: boolean;
 };

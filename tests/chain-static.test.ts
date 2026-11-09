@@ -71,7 +71,7 @@ describe("chain layer static guards", () => {
       const imports = read(f).match(/@\/lib\/chain\/[\w-]+/g) ?? [];
       expect([f, imports.every(i => i === "@/lib/chain/live")]).toEqual([f, true]);
     }
-    expect(matching(walk("src/app/api"), /@\/lib\/chain\/live/).length).toBe(3);   // start, advance, approval decision
+    expect(matching(walk("src/app/api"), /@\/lib\/chain\/live/).length).toBe(4);   // start, advance, approval decision, payment retry
   });
 
   it("the runner reaches the chain only through the injected PaymentChain port", () => {

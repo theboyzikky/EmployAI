@@ -12,7 +12,7 @@ import { chainReaderFromRpc, type ChainReader } from "./port";
 import { checkReadiness, checkRecipient } from "./readiness";
 import { decideRecovery, type RecordState } from "./recovery";
 import { createRpcClient, type RpcClient } from "./rpc";
-import { SignerRefusal, broadcastSigned, signPaymentRequest } from "./signer";
+import { SignerRefusal, broadcastSigned, signPaymentRequest, type PaymentToSign } from "./signer";
 import type { TreasuryPolicy, TxStatusResult } from "./types";
 import { verifyPayout, type PayoutVerdict } from "./verify-outcome";
 
@@ -70,9 +70,16 @@ export function createPaymentChain(deps: { chain: ChainReader; rpc: Pick<RpcClie
       return nearPolicyVersionOf(await chain.getPolicy(config.treasury));
     },
 
-    async sign({ requestId, recipient, amountYocto }) {
+    async sign({ requestId, recipient, amountYocto, mode = "new", previousExpiresAfterHeight }) {
       try {
-        const s = await signPaymentRequest({ chain, config, agentKey }, { requestId, recipient, amountYocto, mode: "new" });
+        const base = { requestId, recipient, amountYocto };
+        if (mode === "resubmit_after_expiry" && typeof previousExpiresAfterHeight !== "number") {
+          return { ok: false, code: "RESUBMIT_NOT_ALLOWED", detail: "the earlier transaction's validity window is unknown", transient: false };
+        }
+        const pay: PaymentToSign = mode === "retry_after_failed" ? { ...base, mode }
+          : mode === "resubmit_after_expiry" ? { ...base, mode, previous: { args: { request_id: requestId, recipient, amount: amountYocto }, expiresAfterHeight: previousExpiresAfterHeight as number } }
+          : { ...base, mode: "new" };
+        const s = await signPaymentRequest({ chain, config, agentKey }, pay);
         return { ok: true, signed: { txHash: s.txHash, signedTxBase64: s.signedTxBase64, nonce: s.nonce, publicKey: s.publicKey, blockHash: s.blockHash, signedBlockHeight: s.signedBlockHeight, validityPeriodBlocks: s.validityPeriodBlocks, expiresAfterHeight: s.expiresAfterHeight } };
       } catch (e) {
         if (e instanceof SignerRefusal) return { ok: false, code: e.code, detail: e.detail, transient: e.code === "CHAIN_UNAVAILABLE" };

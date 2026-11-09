@@ -594,7 +594,9 @@ function commitStep(tx: RunTx, a: CommitArgs): StepOutcome {
       const pre = testnet && a.env.precheck?.requestKey === requestKey(req) ? a.env.precheck.data : null;
       const result = evaluate(
         { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: "system", near },
-        { ...gateBase(tx, businessId, doc, snap, a.nowIsoStr), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"],
+        // A retry re-evaluates the SAME request: its own earlier decision isn't a duplicate (the contract and
+        // the signer still allow at most one success per request_id).
+        { ...gateBase(tx, businessId, doc, snap, a.nowIsoStr, run.payment_retry ? req.request_id : undefined), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"],
           near: testnet ? nearContext(tx, businessId, snap, pre, a.nowIsoStr) : undefined },
       );
       const hash = actionHash({ businessId, runId, requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, method: "request_payment" });
@@ -765,7 +767,10 @@ function commitTestnetPayment(tx: RunTx, a: CommitArgs, run: RunRecord, finishSt
   const req = firstRequest(rec2)!;
   const near = nearAction(req);
   if (!near) return fail("NO_PAYMENT_REQUEST", "There's no testnet payment request.", "failed");
-  const prior = tx.attempts(businessId).filter(x => x.request_id === req.request_id).at(-1);
+  const latest = tx.attempts(businessId).filter(x => x.request_id === req.request_id).at(-1);
+  // An owner-requested retry of a PROVEN failure/expiry starts a NEW attempt (Phase A) on top of it.
+  const retry = run.payment_retry && latest && latest.id === run.payment_retry.of_attempt && (latest.status === "failed_onchain" || latest.status === "expired_unexecuted") ? run.payment_retry : null;
+  const prior = retry ? undefined : latest;
 
   // ---- Phase C: the attempt is final ---------------------------------------------------------------
   if (prior) {
@@ -826,8 +831,10 @@ function commitTestnetPayment(tx: RunTx, a: CommitArgs, run: RunRecord, finishSt
     lease_owner: null, lease_expires_at: null, pre_sign_errors: 0, nonce: null, signer_public_key: null, tx_hash: null, signed_tx_b64: null,
     signed_block_hash: null, signed_block_height: null, validity_period_blocks: null, expires_after_height: null, broadcasts: 0,
     outcome: null, gas_burnt: null, verified_at: null, error: null, checks: [],
+    sign_mode: retry ? retry.mode : "new", retry_of: retry ? latest!.id : null,
+    previous_expires_after_height: retry?.mode === "resubmit_after_expiry" ? latest!.expires_after_height : null,
   });
-  tx.appendEvent(businessId, "agent:finance", "payment.prepared", `attempt:${attempt.id}`, "prepared", runId, { amount_yocto: near.amountYocto, recipient: near.recipientAccount, batch: run.batch_id });
+  tx.appendEvent(businessId, "agent:finance", "payment.prepared", `attempt:${attempt.id}`, "prepared", runId, { amount_yocto: near.amountYocto, recipient: near.recipientAccount, batch: run.batch_id, sign_mode: retry ? retry.mode : "new" });
   exec.output = { testnet: true, attempt_id: attempt.id, status: "prepared", amount_yocto: near.amountYocto, amount_near: Agents.nearText(near.amountYocto), recipient: near.recipientAccount };
   exec.reasoning = `Your approval was used once for this exact payment. Sending ${Agents.nearText(near.amountYocto)} NEAR to ${near.recipientAccount} on NEAR testnet: the signer re-checks everything, then the transaction is saved before it is sent.`;
   finishStep("waiting", { ended_at: null, duration_ms: null });
@@ -1026,6 +1033,57 @@ export async function armTestnetBatch(businessId: string, input: { batchRef: str
 export async function disarmTestnetBatch(businessId: string): Promise<void> {
   await runTransact(tx => {
     if (tx.disarmBatches(businessId, "OWNER") > 0) tx.appendEvent(businessId, "owner", "testnet.disarmed", `business:${businessId}`, "disarmed", businessId, { reason: "OWNER" });
+  });
+}
+
+/** M5 · Whether a run's payment may be retried by the owner, and how (pure over a read). */
+export function retryEligibility(tx: RunTx, run: RunRecord): { allowed: true; attemptId: string; mode: "retry_after_failed" | "resubmit_after_expiry" } | { allowed: false; reason: string } {
+  if (run.mode !== "testnet") return { allowed: false, reason: "Only NEAR testnet payments can be retried." };
+  if (run.status !== "failed") return { allowed: false, reason: "Only a run whose payment failed can be retried." };
+  const req = firstRequest(run.records);
+  const attempts = req ? tx.attempts(run.business_id).filter(x => x.request_id === req.request_id) : [];
+  const last = attempts.at(-1);
+  if (!last) return { allowed: false, reason: "There's no payment attempt to retry." };
+  if (attempts.length >= 3) return { allowed: false, reason: "This payment has been tried three times; start a new run instead." };
+  // Only PROVEN outcomes: the contract recorded the payout as Failed (funds refunded), or the signed
+  // transaction's window closed by block height with no contract record. Never an unknown outcome.
+  if (last.status === "failed_onchain" && last.error?.code === "PAYOUT_FAILED") return { allowed: true, attemptId: last.id, mode: "retry_after_failed" };
+  if (last.status === "expired_unexecuted") return { allowed: true, attemptId: last.id, mode: "resubmit_after_expiry" };
+  if (last.status === "failed_onchain") return { allowed: false, reason: "The contract rejected this request, so retrying it would be rejected again. Fix the cause and start a new run." };
+  return { allowed: false, reason: "This payment's outcome isn't a proven failure, so it can't be retried." };
+}
+
+/**
+ * M5 · Manual retry (R12, §11.1). Reopens the run at its security check: fresh chain checks, a fresh gate
+ * decision and a NEW owner approval are required, counted against the batch armed now. Nothing is
+ * signed here; the signer later re-checks the contract-side condition for the retry mode.
+ */
+export async function requestPaymentRetry(businessId: string, runId: string): Promise<void> {
+  const av = await getPaymentChain();
+  if (!av.ok) throw new ServiceError(av.code, 503, av.message);
+  await lockWait(businessId, async () => {
+    const out = await runTransact(tx => {
+      const run = tx.run(businessId, runId);
+      if (!run) return { err: ["NOT_FOUND", 404, "That run doesn't exist."] as const };
+      const e = retryEligibility(tx, run);
+      if (!e.allowed) return { err: ["RETRY_NOT_ALLOWED", 409, e.reason] as const };
+      if (tx.business(businessId)?.kill_switch) return { err: ["KILL_SWITCH_ACTIVE", 409, "Switch the kill switch off first."] as const };
+      if (tx.runs(businessId).some(r => r.id !== runId && ACTIVE_RUN_STATUSES.includes(r.status))) return { err: ["RUN_IN_PROGRESS", 409, "Another run is in progress for this business."] as const };
+      const wf = tx.workflows(businessId).find(w => w.id === run.workflow_id);
+      if (!wf || wf.status !== "approved" || workflowFingerprint(wf) !== run.approval_fingerprint) return { err: ["WORKFLOW_CHANGED", 409, "The approved workflow changed, so this run can't be retried."] as const };
+      const batch = tx.armedBatch(businessId);
+      if (!batch || batch.payments_used >= batch.max_payments) return { err: ["BATCH_NOT_ARMED", 409, "Arm an approved testnet batch with capacity for the retry first."] as const };
+      const check = wf.steps.steps.find(s => s.type === "security_check");
+      if (!check) return { err: ["RETRY_NOT_ALLOWED", 409, "This workflow has no security check to re-run."] as const };
+      const ok = tx.patchRun(businessId, runId, {
+        status: "running", cursor: check.id, end_reason: null, ended_at: null, elapsed_ms: null, error: null, summary: null, lease_expires_at: null,
+        batch_id: batch.id, payment_retry: { of_attempt: e.attemptId, mode: e.mode, requested_at: tx.now },
+      }, { status: ["failed"] });
+      if (!ok) return { err: ["RETRY_NOT_ALLOWED", 409, "The run changed; try again."] as const };
+      tx.appendEvent(businessId, "owner", "payment.retry_requested", `attempt:${e.attemptId}`, "running", runId, { mode: e.mode, batch: batch.batch_ref });
+      return { ok: true as const };
+    });
+    if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);
   });
 }
 

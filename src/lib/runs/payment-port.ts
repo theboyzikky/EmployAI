@@ -59,8 +59,11 @@ export interface PaymentChain {
   precheck(input: { recipient: string; amountYocto: string }): Promise<ChainPrecheck>;
   /** Fresh on-chain policy version (for the binding re-check immediately before signing). */
   nearPolicyVersion(): Promise<string>;
-  /** Fail-closed signer: fresh key check last, then ONE signature. Never broadcasts. */
-  sign(input: { requestId: string; recipient: string; amountYocto: string }): Promise<SignOutcome>;
+  /**
+   * Fail-closed signer: fresh key check last, then ONE signature. Never broadcasts. A retry passes its
+   * mode; the signer re-checks the contract-side condition for it (Failed record, or expired window).
+   */
+  sign(input: { requestId: string; recipient: string; amountYocto: string; mode?: "new" | "retry_after_failed" | "resubmit_after_expiry"; previousExpiresAfterHeight?: number | null }): Promise<SignOutcome>;
   /** Send the given bytes ONCE (never retried here) and verify the outcome (plan §12). */
   broadcast(input: { signedTxBase64: string; requestId: string; recipient: string; amountYocto: string }): Promise<ChainVerdict>;
   /** Decide from the contract's request record (primary) and the tx outcome (secondary), §11.1. */

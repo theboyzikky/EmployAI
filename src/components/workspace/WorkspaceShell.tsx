@@ -1,13 +1,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Icon, ArrowLeftIcon, FlowArrowIcon, PlayCircleIcon, UsersThreeIcon } from "@/components/icons";
+import { Icon, ArrowLeftIcon, FlowArrowIcon, PlayCircleIcon, ReceiptIcon, UsersThreeIcon } from "@/components/icons";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cx } from "@/lib/cx";
 import { BusinessName } from "./BusinessName";
 import { KillSwitchControl } from "./KillSwitchControl";
 
-export type WorkspaceTab = "team" | "workflows" | "runs";
+export type WorkspaceTab = "team" | "workflows" | "runs" | "ledger";
 
 /**
  * Minimal business workspace: Team, Workflows and (M4) test Runs, with the in-app kill switch in the
@@ -18,6 +18,7 @@ export function WorkspaceShell({ businessId, businessName, tab, killSwitch, chil
     { key: "team", label: "Team", href: `/w/${businessId}/team`, icon: UsersThreeIcon },
     { key: "workflows", label: "Workflows", href: `/w/${businessId}/workflows`, icon: FlowArrowIcon },
     { key: "runs", label: "Runs", href: `/w/${businessId}/runs`, icon: PlayCircleIcon },
+    { key: "ledger", label: "Ledger", href: `/w/${businessId}/ledger`, icon: ReceiptIcon },
   ];
   return (
     <div className="flex min-h-dvh flex-col bg-canvas">

@@ -9,7 +9,7 @@ import { REASON_TEXT } from "@/lib/security/gate";
 import { isRunnableIndustry, restaurantDemoScenario } from "@/lib/workflows/demo-data";
 import { checkRunEligibility } from "./eligibility";
 import { runRead, type RunTx } from "./repo";
-import { expectedFor } from "./runner";
+import { expectedFor, retryEligibility } from "./runner";
 import { SCENARIO_DEFS } from "./scenarios";
 import { nearText } from "./agents";
 import { EXPLORER_TX_URL } from "./payment-executor";
@@ -130,9 +130,10 @@ function runViewFrom(tx: RunTx, businessId: string, runId: string): RunView | nu
       } : null,
     } : null,
     ledger: ledger.map(l => l.mode === "testnet"
-      ? { id: l.id, mode: l.mode, amountText: `${nearText(l.amount)} NEAR`, counterparty: l.counterparty, supplier: l.supplier_name, label: l.label, txHash: l.tx_hash, explorerUrl: l.explorer_url, status: l.tx_status, occurredAt: l.occurred_at }
+      ? { id: l.id, mode: l.mode, amountText: `${nearText(l.amount)} NEAR`, counterparty: l.counterparty, supplier: l.supplier_name, label: l.label, txHash: l.tx_hash, explorerUrl: l.tx_hash ? `${EXPLORER_TX_URL}${l.tx_hash}` : null, status: l.tx_status, occurredAt: l.occurred_at }
       : { id: l.id, mode: l.mode, amountText: `₦${l.amount.toLocaleString("en-NG")}`, counterparty: l.counterparty, supplier: null, label: l.label, txHash: null, explorerUrl: null, status: l.tx_status, occurredAt: l.occurred_at }),
     payment: attemptView(tx.attempts(businessId).filter(x => x.run_id === runId).at(-1) ?? null),
+    retry: run.mode === "testnet" && run.status === "failed" ? (() => { const e = retryEligibility(tx, run); return e.allowed ? { allowed: true, reason: null } : { allowed: false, reason: e.reason }; })() : null,
     events: events.map(e => ({ id: e.id, actor: e.actor, type: e.type, subject: e.subject, status: e.status, createdAt: e.created_at })),
     more: run.status === "running" && run.cursor !== null && !openStep,
   };

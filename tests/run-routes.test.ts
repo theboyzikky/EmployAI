@@ -75,7 +75,7 @@ describe("start → advance → end, through the routes", () => {
     const runId = (await json(await startReq(businessId, workflow.id))).run!.run.id;
     const end = await runToEnd(businessId, runId);
     expect(end.run!.run).toMatchObject({ status: "completed", expected: { decision: "ALLOW", end: "completed" }, actual: { decision: "ALLOW", end: "completed" } });
-    expect(end.run!.ledger).toEqual([expect.objectContaining({ amount: 42_780, label: "Test run — no transaction", txHash: null })]);
+    expect(end.run!.ledger).toEqual([expect.objectContaining({ amountText: "₦42,780", mode: "test_run", label: "Test run — no transaction", txHash: null })]);
     expect(end.run!.steps.find(s => s.stepId === "notify_customer")!.simulated).toEqual(["Demo confirmation (not sent)"]);
     expect(end.view!.runs[0]).toMatchObject({ id: runId, status: "completed", scenarioTitle: "Standard order" });
     expect(blockedFetch).not.toHaveBeenCalled();

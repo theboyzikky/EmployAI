@@ -22,6 +22,8 @@ const STATUS_TEXT: Record<RunStatus, string> = {
 const END_TEXT: Record<string, string> = {
   completed: "Completed", no_reorder: "No reorder needed", manual_order: "Reorder handed to you", blocked: "Payment blocked", rejected: "You declined the payment",
   approval: "Waits for your approval", failed: "Failed", KILL_SWITCH_ACTIVE: "Stopped by the kill switch", STOPPED_BY_OWNER: "Stopped by you", WORKFLOW_CHANGED: "Workflow changed",
+  APPROVAL_STALE: "Approval no longer applied", PAYOUT_FAILED: "Payout failed on-chain", CONTRACT_REJECTED: "Rejected by the treasury contract", PAYMENT_NOT_SENT: "Payment not sent",
+  BATCH_NOT_ARMED: "Testnet batch not armed", BATCH_LIMIT_REACHED: "Testnet batch used up", CHAIN_UNAVAILABLE: "NEAR testnet unreachable",
 };
 
 /**
@@ -36,6 +38,9 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"approve" | "reject" | "stop" | null>(null);
+  const [mode, setMode] = useState<"test_run" | "testnet">("test_run");
+  const [realOk, setRealOk] = useState(false);
+  const [arm, setArm] = useState({ ref: "B3", payments: "1", near: "0.1", minutes: "60" });
   const base = `/api/w/${view.businessId}`;
   const pumping = useRef<string | null>(null);
   const mounted = useRef(true);
@@ -102,9 +107,15 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
   const start = async () => {
     if (!view.workflow) return;
     shownSteps.current = 0;
-    const r = await act("start", `${base}/runs`, { workflow_id: view.workflow.id, scenario }, { "Idempotency-Key": newIdempotencyKey() });
-    if (r.ok && r.run) void pump(r.run.run.id);
+    const body = mode === "testnet" ? { workflow_id: view.workflow.id, scenario, mode, confirm_real_transactions: realOk } : { workflow_id: view.workflow.id, scenario };
+    const r = await act("start", `${base}/runs`, body, { "Idempotency-Key": newIdempotencyKey() });
+    if (r.ok && r.run) { setRealOk(false); void pump(r.run.run.id); }
   };
+  const armBatch = async (disarm = false) => {
+    await act(disarm ? "disarm" : "arm", `${base}/testnet/arm`, disarm ? { disarm: true }
+      : { batch_ref: arm.ref.trim(), max_payments: Number(arm.payments), max_total_near: arm.near.trim(), expires_in_minutes: Number(arm.minutes) });
+  };
+  const checkPayment = () => { if (run) void pump(run.run.id); };
   const decide = async (decision: "approve" | "reject") => {
     if (!run?.approval) return;
     const r = await act(decision, `${base}/approvals/${run.approval.id}`, { decision });
@@ -131,7 +142,7 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
   };
 
   const active = run && ACTIVE.includes(run.run.status);
-  const canStart = view.eligibility.canRun && !busy && !view.activeRunId;
+  const canStart = view.eligibility.canRun && !busy && !view.activeRunId && (mode === "test_run" || (!!view.testnet.batch && realOk));
   const reveal = shownSteps.current;
   useEffect(() => { shownSteps.current = run?.steps.length ?? 0; }, [run?.steps.length]);
 
@@ -189,8 +200,18 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
               </label>
             ))}
           </fieldset>
+          <fieldset className="mt-4 space-y-2" disabled={!view.eligibility.canRun || !!active}>
+            <legend className="text-sm font-semibold text-ink">Mode</legend>
+            {([["test_run", "Test run (no transaction)", "Everything is simulated: nothing is paid."], ["testnet", "NEAR testnet (real transaction)", "The supplier payment is a real NEAR testnet transaction through the treasury contract, after your approval."]] as const).map(([k, title, desc]) => (
+              <label key={k} className={cx("flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2 text-sm", mode === k ? "border-accent-solid bg-accent-soft" : "border-line hover:bg-surface-2")}>
+                <input type="radio" name="mode" value={k} checked={mode === k} onChange={() => { setMode(k); setRealOk(false); }} className="mt-1 accent-[var(--color-accent-solid)]" />
+                <span><span className="font-medium text-ink">{title}</span><span className="mt-0.5 block text-xs text-muted">{desc}</span></span>
+              </label>
+            ))}
+          </fieldset>
+          {mode === "testnet" && <TestnetPanel view={view} busy={busy} arm={arm} setArm={setArm} onArm={armBatch} realOk={realOk} setRealOk={setRealOk} />}
           <button type="button" className="btn btn-primary btn-sm icon-host mt-4" onClick={start} disabled={!canStart}>
-            {busy === "start" ? <Spinner /> : <Icon icon={PlayCircleIcon} size={16} />} Run demo order
+            {busy === "start" ? <Spinner /> : <Icon icon={PlayCircleIcon} size={16} />} {mode === "testnet" ? "Run on NEAR testnet" : "Run demo order"}
           </button>
           {view.activeRunId && <p className="mt-2 text-xs text-muted">A test run is already active. Finish or stop it before starting another.</p>}
         </section>
@@ -198,7 +219,7 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
 
       {error && <p role="alert" className="rounded-xl bg-surface px-4 py-3 text-sm font-medium text-danger ring-1 ring-line">{error}</p>}
 
-      {run && <RunPanel run={run} busy={busy} confirm={confirm} setConfirm={setConfirm} onDecide={decide} onControl={control} reveal={reveal} />}
+      {run && <RunPanel run={run} busy={busy} confirm={confirm} setConfirm={setConfirm} onDecide={decide} onControl={control} onCheckPayment={checkPayment} reveal={reveal} />}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <section aria-labelledby="history-title" className="card px-5 py-4">
@@ -235,9 +256,9 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
   );
 }
 
-function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, reveal }: {
+function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, onCheckPayment, reveal }: {
   run: RunView; busy: string | null; confirm: "approve" | "reject" | "stop" | null; setConfirm: (c: "approve" | "reject" | "stop" | null) => void;
-  onDecide: (d: "approve" | "reject") => void; onControl: (c: "pause" | "resume" | "stop") => void; reveal: number;
+  onDecide: (d: "approve" | "reject") => void; onControl: (c: "pause" | "resume" | "stop") => void; onCheckPayment: () => void; reveal: number;
 }) {
   const r = run.run;
   const active = ACTIVE.includes(r.status);
@@ -245,7 +266,8 @@ function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, reveal 
     <section aria-labelledby="run-title" className="card px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 id="run-title" className="flex flex-wrap items-center gap-2 text-base font-semibold text-ink">{r.scenarioTitle} <RunStatusBadge status={r.status} /></h2>
+          <h2 id="run-title" className="flex flex-wrap items-center gap-2 text-base font-semibold text-ink">{r.scenarioTitle} <RunStatusBadge status={r.status} />
+            {r.mode === "testnet" ? <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">NEAR testnet · real transaction{r.batchRef ? ` · batch ${r.batchRef}` : ""}</span> : <Tag>Test run — no transaction</Tag>}</h2>
           <p className="mt-0.5 text-xs text-muted" aria-live="polite">
             Started {when(r.startedAt)} · workflow version {r.workflowVersion} · {r.stepsDone} steps
             {r.pauseReason?.startsWith("agent_paused:") ? ` · waiting because an agent is paused` : ""}
@@ -287,15 +309,23 @@ function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, reveal 
             <div><dt className="inline text-muted">Pay: </dt><dd className="inline text-ink">{run.approval.beneficiary}</dd></div>
             <div><dt className="inline text-muted">Amount: </dt><dd className="inline font-semibold text-ink">{ngn(run.approval.amountNgn)} <span className="font-normal text-muted">(illustrative)</span></dd></div>
             <div><dt className="inline text-muted">Through: </dt><dd className="inline text-ink">{run.approval.channel}</dd></div>
+            {run.approval.testnet && <>
+              <div><dt className="inline text-muted">Recipient account: </dt><dd className="inline break-all font-mono text-xs text-ink">{run.approval.testnet.recipientAccount}</dd></div>
+              <div><dt className="inline text-muted">Testnet transaction: </dt><dd className="inline font-semibold text-ink">{run.approval.testnet.amountNear} NEAR</dd></div>
+              <div><dt className="inline text-muted">Network: </dt><dd className="inline text-ink">NEAR testnet · {run.approval.testnet.contract}</dd></div>
+              <div><dt className="inline text-muted">Batch: </dt><dd className="inline text-ink">{run.approval.testnet.batchRef}</dd></div>
+            </>}
             <div><dt className="inline text-muted">Your threshold: </dt><dd className="inline text-ink">{ngn(run.approval.thresholdNgn)} · maximum {ngn(run.approval.maxPaymentNgn)}</dd></div>
             <div><dt className="inline text-muted">Expires: </dt><dd className="inline text-ink">{run.approval.expiredNotPersisted ? "Expired" : when(run.approval.expiresAt)}</dd></div>
           </dl>
           <ul className="mt-2 space-y-1 text-sm">{run.approval.reasons.map(x => <li key={x.code} className="flex items-start gap-2 text-ink"><Icon icon={WarningIcon} size={16} swap={false} className="mt-0.5 flex-none text-accent" />{x.text}</li>)}</ul>
           {run.approval.rationale && <p className="mt-2 text-xs text-muted">{run.approval.rationale}</p>}
-          <p className="mt-2 text-xs text-muted">Approving records only a simulated payment: test run, no transaction. Your approval is checked again before it takes effect.</p>
+          {run.approval.testnet
+            ? <p className="mt-2 text-sm font-semibold text-ink">Approving signs a real NEAR testnet transaction: {run.approval.testnet.amountNear} NEAR to {run.approval.testnet.recipientAccount}. Your approval covers this exact payment only and is checked again before signing. The ₦ amount is the illustrative business amount, not the transaction value.</p>
+            : <p className="mt-2 text-xs text-muted">Approving records only a simulated payment: test run, no transaction. Your approval is checked again before it takes effect.</p>}
           {!run.approval.expiredNotPersisted && (confirm === "approve" || confirm === "reject" ? (
             <div role="group" aria-label="Confirm decision" className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-ink">{confirm === "approve" ? `Approve ${ngn(run.approval.amountNgn)} to ${run.approval.beneficiary}?` : "Decline this payment?"}</span>
+              <span className="text-sm text-ink">{confirm === "approve" ? (run.approval.testnet ? `Sign and send ${run.approval.testnet.amountNear} NEAR on NEAR testnet to ${run.approval.testnet.recipientAccount}?` : `Approve ${ngn(run.approval.amountNgn)} to ${run.approval.beneficiary}?`) : "Decline this payment?"}</span>
               <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => onDecide(confirm)}>{busy === confirm ? <Spinner /> : confirm === "approve" ? "Yes, approve" : "Yes, decline"}</button>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirm(null)}>Back</button>
             </div>
@@ -338,15 +368,19 @@ function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, reveal 
         <div className="mt-4 rounded-xl bg-surface-2 px-3 py-2.5 text-sm">
           <p className="flex flex-wrap items-center gap-2 font-medium text-ink"><Icon icon={ShieldCheckIcon} size={16} swap={false} className="text-accent" />Security check {run.decisions.map(d => <DecisionBadge key={d.id} decision={d.decision} />)}</p>
           <ul className="mt-1 space-y-0.5 text-xs text-muted">{run.decisions.flatMap(d => d.reasons).map(x => <li key={x.code}>{x.text}</li>)}</ul>
-          <p className="mt-1 text-xs text-muted">Test-run decision on demo data. On-chain checks run from the next stage.</p>
+          <p className="mt-1 text-xs text-muted">{r.mode === "testnet" ? "Checked in both currencies, plus the treasury readiness and the on-chain allowlist (read-only)." : "Test-run decision on demo data. On-chain checks run from the next stage."}</p>
         </div>
       )}
+
+      {run.payment && <PaymentStatus payment={run.payment} busy={busy} onCheck={onCheckPayment} />}
 
       {run.ledger.length > 0 && (
         <div className="mt-3 rounded-xl bg-surface-2 px-3 py-2.5 text-sm">
           {run.ledger.map(l => (
             <p key={l.id} className="flex flex-wrap items-center gap-2 text-ink"><Icon icon={ReceiptIcon} size={16} swap={false} className="text-accent" />
-              {ngn(l.amount)} to {l.counterparty} <span className="rounded-full bg-surface px-2 py-0.5 text-[0.6875rem] font-semibold text-ink ring-1 ring-line">{l.label}</span></p>
+              {l.amountText} to {l.counterparty}{l.supplier ? ` (${l.supplier})` : ""} <span className="rounded-full bg-surface px-2 py-0.5 text-[0.6875rem] font-semibold text-ink ring-1 ring-line">{l.label}</span>
+              {l.txHash && <span className="break-all font-mono text-[0.6875rem] text-muted">{l.txHash}</span>}
+              {l.explorerUrl && <a href={l.explorerUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent underline">Explorer link (format unverified)</a>}</p>
           ))}
         </div>
       )}
@@ -354,6 +388,64 @@ function RunPanel({ run, busy, confirm, setConfirm, onDecide, onControl, reveal 
       {r.summary && <p className="mt-3 text-sm text-ink"><span className="font-semibold">Summary: </span>{r.summary}</p>}
       {r.error && <p className="mt-2 text-sm text-danger">{r.error.message}</p>}
     </section>
+  );
+}
+
+/** M5 · the armed batch, arming it, and the explicit real-transaction confirmation. */
+function TestnetPanel({ view, busy, arm, setArm, onArm, realOk, setRealOk }: {
+  view: RunsView; busy: string | null; arm: { ref: string; payments: string; near: string; minutes: string };
+  setArm: (a: { ref: string; payments: string; near: string; minutes: string }) => void; onArm: (disarm?: boolean) => void; realOk: boolean; setRealOk: (v: boolean) => void;
+}) {
+  const b = view.testnet.batch;
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border border-accent-line bg-accent-soft px-3 py-3 text-sm">
+      <p className="text-xs text-ink">Payees (approved suppliers on the treasury contract allowlist): {view.testnet.recipients.map(x => `${x.supplier} → ${x.account}`).join("; ")}. Limits: 0.1 NEAR per payment, 0.25 NEAR per day (also enforced by the contract).</p>
+      {b ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-ink">Batch <span className="font-semibold">{b.ref}</span> armed: {b.paymentsUsed}/{b.maxPayments} payments, {b.usedNear}/{b.maxTotalNear} NEAR, until {when(b.expiresAt)}.</p>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => onArm(true)}>{busy === "disarm" ? <Spinner /> : "Disarm"}</button>
+        </div>
+      ) : (
+        <div>
+          <p className="text-ink">Arm the batch you approved in writing. It limits payments; it never approves one.</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([["ref", "Batch ID"], ["payments", "Max payments"], ["near", "Max NEAR"], ["minutes", "Minutes"]] as const).map(([k, label]) => (
+              <label key={k} className="text-xs text-muted">{label}
+                <input value={arm[k]} onChange={e => setArm({ ...arm, [k]: e.target.value })} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink" />
+              </label>
+            ))}
+          </div>
+          <button type="button" className="btn btn-secondary btn-sm mt-2" disabled={!!busy} onClick={() => onArm(false)}>{busy === "arm" ? <Spinner /> : "Arm batch"}</button>
+        </div>
+      )}
+      <label className="flex items-start gap-2 text-ink">
+        <input type="checkbox" checked={realOk} onChange={e => setRealOk(e.target.checked)} className="mt-1 accent-[var(--color-accent-solid)]" />
+        <span>I understand this run can sign a real NEAR testnet transaction, but only after I approve the exact payment.</span>
+      </label>
+    </div>
+  );
+}
+
+function PaymentStatus({ payment: p, busy, onCheck }: { payment: NonNullable<RunView["payment"]>; busy: string | null; onCheck: () => void }) {
+  const final = ["confirmed", "failed_onchain", "aborted", "expired_unexecuted"].includes(p.status);
+  const tone = p.status === "confirmed" ? "text-success" : p.status === "failed_onchain" || p.status === "aborted" || p.status === "expired_unexecuted" ? "text-danger" : "text-accent";
+  return (
+    <div className="mt-4 rounded-xl bg-surface-2 px-3 py-2.5 text-sm" role="status" aria-live="polite">
+      <p className="flex flex-wrap items-center gap-2 font-medium text-ink"><Icon icon={ReceiptIcon} size={16} swap={false} className="text-accent" />NEAR testnet payment: <span className={tone}>{p.statusText}</span></p>
+      <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-xs sm:grid-cols-2">
+        <div><dt className="inline text-muted">Amount: </dt><dd className="inline text-ink">{p.amountNear} NEAR (business amount {ngn(p.amountNgn)}, illustrative)</dd></div>
+        <div><dt className="inline text-muted">To: </dt><dd className="inline break-all font-mono text-ink">{p.recipient}</dd></div>
+        {p.txHash && <div className="sm:col-span-2"><dt className="inline text-muted">Transaction: </dt><dd className="inline break-all font-mono text-ink">{p.txHash}</dd></div>}
+        {p.signedBlockHeight !== null && !final && <div className="sm:col-span-2"><dt className="inline text-muted">Validity window: </dt><dd className="inline text-ink">signed at block {p.signedBlockHeight}; can execute until block {p.expiresAfterHeight}</dd></div>}
+        {p.verifiedAt && <div><dt className="inline text-muted">Verified: </dt><dd className="inline text-ink">{when(p.verifiedAt)}</dd></div>}
+      </dl>
+      {p.error && <p className="mt-1 text-xs text-danger">{p.error.message} ({p.error.code})</p>}
+      {p.lastCheck && !final && <p className="mt-1 text-xs text-muted">Last check: {p.lastCheck.detail}</p>}
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        {p.explorerUrl && p.status === "confirmed" && <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent underline">Explorer link (format unverified)</a>}
+        {!final && <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={onCheck}>Check payment status</button>}
+      </div>
+    </div>
   );
 }
 

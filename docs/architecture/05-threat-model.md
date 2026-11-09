@@ -40,13 +40,13 @@ RPC / NearBlocks responses ───────►│ security gate (determinis
 | Duplicate payment (double click, retry, restart) | The run's idempotency key. The contract keeps processed `request_id`s, and a duplicate panics. Payments are never retried; they're reconciled by request ID. |
 | Over-limit payment | Gate hard rule **and** the contract's per-transaction and daily caps |
 | Function-call key leaked | It can only call `treasury.request_payment`, which still enforces the allowlist and caps. It can't transfer or add keys. The owner revokes it (AT-13) and issues a new one. |
-| Kill switch during a run | Pending approvals are invalidated and the signer refuses. On-chain `pause` stops all agent calls. A transaction already submitted is shown with its real status, never as "cancelled". |
+| Kill switch during a run | Pending approvals are invalidated and the signer refuses. On-chain `pause` stops all agent calls. A transaction already submitted is shown with its real status, never as "cancelled". **M5 (proposed):** the in-app switch also aborts any payment not yet broadcast. On-chain `pause` is **owner-run from the CLI**; the server holds no pause key (R8). See §5a. |
 
 ### T3 · Malicious suppliers or counterparties
 
 | Scenario | Mitigations |
 |---|---|
-| A fake or look-alike supplier account | Payouts go only to the owner's approved recipients without approval. Anything else is WARN or BLOCK. The UI shows the exact account ID. |
+| A fake or look-alike supplier account | Payouts go only to recipients on the **treasury contract's on-chain allowlist**. **An app-level approval never bypasses it:** a recipient not on the allowlist is BLOCKed before signing and rejected by the contract regardless. Adding a recipient is a separate owner-signed on-chain operation, followed by verification (owner correction, 2026-11-08). Agents choose recipients only from the owner's registry. The UI shows the exact account ID. |
 | A supplier contract's code changes | `code_hash` differs from the previously recorded one → WARN |
 | A brand-new or empty account | Age or activity below policy minimums → WARN; age unknown → WARN |
 | Blocklist poisoning | Evidence is required. Unreviewed reports only WARN. Confirmation is by the platform reviewer. Reports are attributable and expire. |
@@ -94,7 +94,7 @@ RPC / NearBlocks responses ───────►│ security gate (determinis
 5. Recipient confirmed on the blocklist → **BLOCK** `RECIPIENT_BLOCKLISTED`
 6. Amount over the per-transaction limit, or the day's total over the daily limit → **BLOCK** `OVER_TX_LIMIT` / `OVER_DAILY_LIMIT`
 7. Duplicate `request_id` → **BLOCK** `DUPLICATE_REQUEST`
-8. Collect WARN reasons: `RECIPIENT_NOT_APPROVED`, `FIRST_INTERACTION`, `NEW_ACCOUNT`, `LOW_ACTIVITY`, `AGE_UNKNOWN`, `REPORTED_UNREVIEWED`, `CODE_CHANGED`, `UNKNOWN_CONTRACT`, `ABOVE_APPROVAL_THRESHOLD`, `UNTRUSTED_INSTRUCTION_SOURCE`, `SIGNAL_SOURCE_UNAVAILABLE` → **WARN** if any
+8. Collect WARN reasons (in real testnet payments from M5, a recipient missing from the **on-chain allowlist** is a hard BLOCK, `RECIPIENT_NOT_APPROVED_ONCHAIN`, under rule 3. **From M5 an unapproved recipient is a hard BLOCK in test runs too** (O4, owner, 2026-11-08; the change to M4's gate waits for checkpoint CP-1): `RECIPIENT_NOT_APPROVED`, `FIRST_INTERACTION`, `NEW_ACCOUNT`, `LOW_ACTIVITY`, `AGE_UNKNOWN`, `REPORTED_UNREVIEWED`, `CODE_CHANGED`, `UNKNOWN_CONTRACT`, `ABOVE_APPROVAL_THRESHOLD`, `UNTRUSTED_INSTRUCTION_SOURCE`, `SIGNAL_SOURCE_UNAVAILABLE` → **WARN** if any
 9. Otherwise → **ALLOW**
 
 **Demo expectations:**
@@ -146,3 +146,14 @@ Read-only checks against testnet on 2026-11-04.
 - 🔁 Revocation and rotation: the owner deletes the key with their full-access key, then adds a new one.
 - 🛟 Recovery: the owner keeps a full-access key for the agent account offline, so it never becomes an unrecoverable function-call-only account.
 - 🏦 The treasury contract independently checks the agent, recipient, caps, pause state and request ID before moving funds.
+
+## 5a. Owner-controlled emergency procedure (M5, proposed; R8)
+
+There is no server-held pause key in M5. In an emergency:
+1. **In the app:** switch on the kill switch. New runs are refused, pending approvals invalidated, and signing refused before broadcast.
+2. **On-chain pause:** the owner runs `scripts/pause` with their full-access key (one-yocto deposit). Every `request_payment` then panics with `Paused`.
+3. **Suspected key leak:** the owner runs `scripts/revoke-agent-key`, which deletes the function-call key with the finance-agent recovery key (AT-13).
+4. **Verify:** paused = true and the key is gone; app readiness shows `TREASURY_PAUSED` or `SIGNER_KEY_UNSAFE`.
+5. **Recover:** investigate; add a new key; update `.env` (owner); `scripts/unpause`; re-run readiness.
+
+**Residual exposure until step 2 or 3:** a leaked function-call key can pay only on-chain-allowlisted suppliers, at most 0.1 NEAR per payment and 0.25 NEAR a day. **Steps 2 and 3 are a standing pre-authorised emergency procedure** (O3, owner, 2026-11-08): the owner may run them at any time without a prior written batch and records each use afterwards as batch E. Unpause and adding a new key still need a normal written batch. **The server never holds a pause or owner key.**

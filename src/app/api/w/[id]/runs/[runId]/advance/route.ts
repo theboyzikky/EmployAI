@@ -1,3 +1,4 @@
+import "@/lib/chain/live";   // M5: registers the NEAR testnet payment port (server-only)
 import { jsonError, readBody } from "@/lib/http";
 import { EmptyBody, UUID, runResponse, runsRoute } from "@/lib/runs/routes";
 import { advanceRun } from "@/lib/runs/runner";

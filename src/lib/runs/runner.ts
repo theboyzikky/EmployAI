@@ -9,8 +9,11 @@ import "server-only";
 // - Approval decisions and controls never execute steps. Control requests (pause, stop, kill switch) are
 //   persisted at once through the store write queue, without the business lock; only their
 //   finalisation takes the lock (plan §5.6). The runner finalises them too when it notices first.
-// - Nothing leaves the run: agents are pure handlers, tools are local or labelled simulations, and a
-//   payment ends as a SIMULATED outcome only (C1–C4). No network, signer, contract or NEAR code.
+// - Test runs: nothing leaves the run; a payment ends as a SIMULATED outcome only (C1–C4).
+// - M5 testnet runs: the payment is real. Phase A (here, under the lock, atomic) consumes the owner's
+//   approval and records a durable attempt; Phase B (payment-executor.ts, OUTSIDE the lock) signs,
+//   writes ahead, broadcasts and verifies through the injected PaymentChain; Phase C (here) moves the run
+//   on from the verified outcome. This module itself has no network, signer or NEAR code.
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import { ServiceError } from "@/lib/discovery/service";
 import type { AgentRecord } from "@/lib/discovery/store";
@@ -20,12 +23,23 @@ import { evaluate, type GateContext, type GatePolicy } from "@/lib/security/gate
 import type { DemoScenario } from "@/lib/workflows/demo-data";
 import type { Params, Step, WorkflowDoc } from "@/lib/workflows/schema";
 import * as Agents from "./agents";
+import { currentBinding, firstRequest, type PreparedRequest } from "./binding";
+import { abortUnsentAttempts, driveAttempt, driveRunAttempts } from "./payment-executor";
+import { getPaymentChain, type ChainPrecheck, type PaymentChain } from "./payment-port";
+import { bindingDiff, testnetActionHash } from "@/lib/security/authorisation";
+import type { NearGateContext } from "@/lib/security/gate";
 import { checkRunEligibility } from "./eligibility";
 import { workflowFingerprint } from "./fingerprint";
 import { runRead, runTransact, type RunTx } from "./repo";
 import { SCENARIO_DEFS, chooseSupplier, reorderFor, scenarioSnapshot, stockAfterOrder } from "./scenarios";
 import { BrokerRefusal, makeBroker, scopeAccess, type Work } from "./tools";
-import { ACTIVE_RUN_STATUSES, type Actor, type RunRecord, type RunStatus, type RunStepRecord, type ScenarioKey } from "./types";
+import { ACTIVE_RUN_STATUSES, TERMINAL_ATTEMPT_STATUSES, ledgerNgn, type Actor, type RunMode, type RunRecord, type RunStatus, type RunStepRecord, type ScenarioKey } from "./types";
+
+/** M5 · What one advance may need from the chain: the injected port and a fresh precheck. */
+type RunEnv = { chain: PaymentChain | null; precheck: { requestKey: string; data: ChainPrecheck } | null };
+const NO_ENV: RunEnv = { chain: null, precheck: null };
+const requestKey = (r: PreparedRequest) => `${r.request_id}|${r.recipient_account}|${r.amount_yocto}`;
+const PRECHECK_MAX_AGE_MS = 60_000;
 
 export const MAX_BATCH_STEPS = 5;
 export const BATCH_BUDGET_MS = 1_500;
@@ -72,12 +86,52 @@ function gateBase(tx: RunTx, businessId: string, doc: WorkflowDoc, snap: DemoSce
     killSwitch: !!tx.business(businessId)?.kill_switch,
     policy: policyOf(doc, snap),
     // D7: only the fictional registry history counts as "paid before"; test-run outcomes never do.
-    registry: snap.suppliers.map(s => ({ name: s.name, approved: s.approved, priorPayments: s.prior_payments ?? 0 })),
+    registry: snap.suppliers.map(s => ({ name: s.name, approved: s.approved, priorPayments: s.prior_payments ?? 0, account: s.testnet_account })),
     blocklist: [],
-    spentTodayNgn: tx.ledger(businessId).filter(l => today(l.occurred_at) === today(nowIsoStr)).reduce((t, l) => t + l.amount, 0),
+    spentTodayNgn: tx.ledger(businessId).filter(l => today(l.occurred_at) === today(nowIsoStr)).reduce((t, l) => t + ledgerNgn(l), 0),
     seenRequestIds: tx.decisions(businessId).map(d => (d.action as { request_id?: string }).request_id ?? "").filter(id => id && id !== excludeRequestId),
   };
 }
+
+/**
+ * M5 · NEAR gate context: the app policy, today's testnet total (the larger of the app's confirmed +
+ * in-flight attempts and the contract's own counter), the chain checks' hard refusals, and the
+ * confirmed payouts per account ("paid before", R7).
+ */
+function nearContext(tx: RunTx, businessId: string, snap: DemoScenario, pre: ChainPrecheck | null, nowIsoStr: string): NearGateContext {
+  const np = snap.near_policy;
+  const failures = pre ? pre.failures.map(f => f.code) : ["CHAIN_UNAVAILABLE"];
+  if (pre?.onchainLimits && np && (pre.onchainLimits.maxPerTxYocto !== np.max_per_tx_yocto || pre.onchainLimits.dailyCapYocto !== np.daily_cap_yocto)) failures.push("TREASURY_POLICY_MISMATCH");
+  const day = today(nowIsoStr);
+  const local = tx.attempts(businessId).filter(a => today(a.created_at) === day && !["failed_onchain", "aborted", "expired_unexecuted"].includes(a.status))
+    .reduce((t, a) => t + BigInt(a.amount_yocto), BigInt(0));
+  const onchain = pre?.onchainSpentTodayYocto ? BigInt(pre.onchainSpentTodayYocto) : BigInt(0);
+  const confirmedPayouts = paidTestnet(tx, businessId);
+  return {
+    policy: np ? { version: np.version, maxPerTxYocto: np.max_per_tx_yocto, dailyCapYocto: np.daily_cap_yocto, approvalThresholdYocto: np.approval_threshold_yocto } : null,
+    spentTodayYocto: (local > onchain ? local : onchain).toString(),
+    chainFailures: failures,
+    confirmedPayouts,
+    signals: {
+      near_policy_version: pre?.nearPolicyVersion ?? null, onchain_spent_today_yocto: pre?.onchainSpentTodayYocto ?? null, app_spent_today_yocto: local.toString(),
+      chain_checked_at: pre?.checkedAt ?? null, chain_failures: pre?.failures ?? [{ code: "CHAIN_UNAVAILABLE", detail: "no chain check" }],
+    },
+  };
+}
+
+/** Rebuild a precheck from a stored decision's signals (re-checks without new RPC: approve click, Phase A). */
+function precheckFromSignals(signals: Record<string, unknown>): ChainPrecheck {
+  return { failures: [], onchainSpentTodayYocto: (signals.onchain_spent_today_yocto as string | null) ?? null, nearPolicyVersion: (signals.near_policy_version as string | null) ?? null, onchainLimits: null, checkedAt: (signals.chain_checked_at as string) ?? "" };
+}
+
+/** Confirmed testnet payouts per account (R7: the only "paid before" signal in testnet). */
+const paidTestnet = (tx: RunTx, businessId: string) => {
+  const out: Record<string, number> = {};
+  for (const l of tx.ledger(businessId)) if (l.mode === "testnet" && l.tx_status === "confirmed") out[l.counterparty] = (out[l.counterparty] ?? 0) + 1;
+  return out;
+};
+
+const nearAction = (req: PreparedRequest | undefined) => (req?.recipient_account && req.amount_yocto ? { recipientAccount: req.recipient_account, amountYocto: req.amount_yocto } : undefined);
 
 const agentFor = (agents: AgentRecord[], key: string | null) => (key ? agents.find(a => a.key === key) ?? null : null);
 const brokerAgent = (a: AgentRecord | null) => a ? { key: a.key, status: a.status, allowedTools: a.definition.allowed_tools, readScopes: a.definition.read_scopes, writeScopes: a.definition.write_scopes } : null;
@@ -92,7 +146,7 @@ function involvedAgents(step: Step, doc: WorkflowDoc): string[] {
 }
 
 /** Expected result for FR-10 "expected vs actual": a pure prediction from the scenario and settings. */
-export function expectedFor(doc: WorkflowDoc, scenario: ScenarioKey, spentTodayNgn: number): RunRecord["expected"] {
+export function expectedFor(doc: WorkflowDoc, scenario: ScenarioKey, spentTodayNgn: number, mode: RunMode = "test_run", testnetPaid: Readonly<Record<string, number>> = {}): RunRecord["expected"] {
   const snap = scenarioSnapshot(scenario);
   const has = (id: string) => doc.steps.some(s => s.id === id);
   const stock = has("order_check") ? stockAfterOrder(snap, SCENARIO_DEFS[scenario].order) : snap.inventory;
@@ -105,7 +159,9 @@ export function expectedFor(doc: WorkflowDoc, scenario: ScenarioKey, spentTodayN
   const { chosen } = chooseSupplier(snap, reorder.item);
   if (!chosen) return { decision: null, end: "failed" };
   const r = evaluate({ kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: "expected", beneficiary: chosen.name, amountNgn: chosen.price_per_unit_ngn * reorder.quantity, channel: { kind: "treasury_contract", method: "request_payment" }, provenance: "system" },
-    { killSwitch: false, agent: { status: "approved", allowedTools: ["request_payment"] }, stepTools: ["request_payment"], policy: policyOf(doc, snap), registry: snap.suppliers.map(s => ({ name: s.name, approved: s.approved, priorPayments: s.prior_payments ?? 0 })), blocklist: [], spentTodayNgn, seenRequestIds: [] });
+    { killSwitch: false, agent: { status: "approved", allowedTools: ["request_payment"] }, stepTools: ["request_payment"], policy: policyOf(doc, snap), registry: snap.suppliers.map(s => ({ name: s.name, approved: s.approved, priorPayments: mode === "testnet" ? testnetPaid[s.testnet_account ?? ""] ?? 0 : s.prior_payments ?? 0 })), blocklist: [], spentTodayNgn, seenRequestIds: [] });
+  // Testnet: approval is ALWAYS required (R5), so ALLOW and WARN both wait for the owner.
+  if (mode === "testnet") return { decision: r.decision, end: r.decision === "BLOCK" ? "blocked" : "approval" };
   return { decision: r.decision, end: r.decision === "ALLOW" ? "completed" : r.decision === "WARN" ? "approval" : "blocked" };
 }
 
@@ -113,7 +169,13 @@ export function expectedFor(doc: WorkflowDoc, scenario: ScenarioKey, spentTodayN
 // Start (creates and persists; executes nothing)
 // ---------------------------------------------------------------------------------------------------
 
-export async function startRun(businessId: string, input: { workflowId: string; scenario: ScenarioKey; idempotencyKey: string }, hooks?: RunHooks): Promise<{ runId: string; created: boolean }> {
+export async function startRun(businessId: string, input: { workflowId: string; scenario: ScenarioKey; idempotencyKey: string; mode?: RunMode; confirmRealTransactions?: boolean }, hooks?: RunHooks): Promise<{ runId: string; created: boolean }> {
+  const mode: RunMode = input.mode ?? "test_run";
+  if (mode === "testnet") {
+    if (input.confirmRealTransactions !== true) throw new ServiceError("CONFIRMATION_REQUIRED", 400, "Confirm that this run signs a real NEAR testnet transaction.");
+    const av = await getPaymentChain();
+    if (!av.ok) throw new ServiceError(av.code, 503, av.message);
+  }
   return lockWait(businessId, async () => {
     const out = await runTransact(tx => {
       const existing = tx.runs(businessId).find(r => r.idempotency_key === input.idempotencyKey);
@@ -125,17 +187,21 @@ export async function startRun(businessId: string, input: { workflowId: string; 
       const now = nowIso(hooks);
       const doc = elig.workflow.steps;
       const snap = scenarioSnapshot(input.scenario);
-      const spent = tx.ledger(businessId).filter(l => today(l.occurred_at) === today(now)).reduce((t, l) => t + l.amount, 0);
+      const spent = tx.ledger(businessId).filter(l => today(l.occurred_at) === today(now)).reduce((t, l) => t + ledgerNgn(l), 0);
+      // Testnet: a payment run needs an armed, unexpired batch with capacity (plan §8.4).
+      const batch = mode === "testnet" ? tx.armedBatch(businessId) : null;
+      if (mode === "testnet" && !batch) return { refusal: { code: "BATCH_NOT_ARMED", status: 409, message: "Arm an approved testnet batch before starting a NEAR testnet run." } };
+      if (batch && batch.payments_used >= batch.max_payments) return { refusal: { code: "BATCH_LIMIT_REACHED", status: 409, message: "The armed testnet batch has no payments left." } };
       const trigger = doc.steps.find(s => s.type === "trigger");
       const run = tx.insertRun({
         business_id: businessId, workflow_id: elig.workflow.id, workflow_version: elig.workflow.version, approval_fingerprint: elig.fingerprint,
-        mode: "test_run", scenario: input.scenario, status: "running",
+        mode, batch_id: batch?.id ?? null, scenario: input.scenario, status: "running",
         trigger: { source: trigger?.type === "trigger" ? trigger.source : "demo_order", requested_by: "owner" }, idempotency_key: input.idempotencyKey,
         demo_snapshot: snap, records: { orders: [], handoffs: [] }, cursor: doc.start, steps_done: 0, exec_ms: 0, lease_expires_at: null,
         control: null, control_at: null, pause_reason: null, started_at: now, ended_at: null, elapsed_ms: null, summary: null,
-        expected: expectedFor(doc, input.scenario, spent), end_reason: null, error: null,
+        expected: expectedFor(doc, input.scenario, spent, mode, paidTestnet(tx, businessId)), end_reason: null, error: null,
       });
-      tx.appendEvent(businessId, "owner", "run.started", `run:${run.id}`, "running", run.id, { workflow_version: elig.workflow.version, scenario: input.scenario, mode: "test_run" });
+      tx.appendEvent(businessId, "owner", "run.started", `run:${run.id}`, "running", run.id, { workflow_version: elig.workflow.version, scenario: input.scenario, mode, batch: batch?.batch_ref ?? null });
       return { runId: run.id, created: true };
     });
     if ("refusal" in out && out.refusal) throw new ServiceError(out.refusal.code, out.refusal.status, out.refusal.message);
@@ -166,6 +232,9 @@ function endRun(tx: RunTx, run: RunRecord, status: RunStatus, endReason: string,
 
 /** Finish a cancellation requested by the kill switch or a stop (idempotent). */
 function finaliseCancel(tx: RunTx, run: RunRecord, reason: "KILL_SWITCH_ACTIVE" | "STOPPED_BY_OWNER", actor: Actor) {
+  // M5: a payment not yet broadcast is aborted (any signed bytes are discarded, never sent). One already
+  // broadcast can't be recalled: it keeps being reconciled and its real outcome is recorded (§14).
+  abortUnsentAttempts(tx, run.business_id, run.id, reason);
   for (const st of tx.steps(run.id).filter(s => s.status === "running" || s.status === "waiting")) {
     tx.patchStep(run.id, st.id, st.status, { status: "cancelled", ended_at: tx.now, error: { code: reason, message: "Cancelled." } });
   }
@@ -191,8 +260,70 @@ const leaseExpired = (run: RunRecord, now: string) => !run.lease_expires_at || r
 
 export type AdvanceResult = { advanced: number; more: boolean; settling: boolean };
 
+/**
+ * Advance a run. Steps execute under the business lock in bounded batches (unchanged M4 behaviour). For
+ * a NEAR testnet run, the chain work between batches happens OUTSIDE the lock: the read-only precheck
+ * before the security check, and driving the payment attempt (sign → write-ahead → broadcast → verify,
+ * or reconcile). Any unfinished attempt is driven first, so a restarted server recovers on the next
+ * advance without ever re-signing a persisted transaction.
+ */
 export async function advanceRun(businessId: string, runId: string, hooks?: RunHooks): Promise<AdvanceResult> {
-  return lockWait(businessId, async () => {
+  const peek = await runRead(tx => tx.run(businessId, runId));
+  if (!peek) throw new ServiceError("NOT_FOUND", 404, "That run doesn't exist.");
+  if (peek.mode !== "testnet") return lockWait(businessId, () => runBatch(businessId, runId, NO_ENV, hooks));
+
+  const av = await getPaymentChain();
+  if (!av.ok) throw new ServiceError(av.code, 503, av.message);   // nothing changes without the chain
+  const env: RunEnv = { chain: av.chain, precheck: null };
+  const drove = new Set<string>();
+  await driveRunAttempts(businessId, runId, av.chain);
+  const pending = await runRead(tx => tx.attempts(businessId).filter(a => a.run_id === runId && !TERMINAL_ATTEMPT_STATUSES.includes(a.status)).map(a => a.id));
+  for (const id of pending) drove.add(id);
+  let advanced = 0;
+  let last: AdvanceResult = { advanced: 0, more: false, settling: false };
+  for (let round = 0; round < 4; round++) {
+    last = await lockWait(businessId, () => runBatch(businessId, runId, env, hooks));
+    advanced += last.advanced;
+    const work = await runRead(tx => chainWorkFor(tx, businessId, runId, env));
+    if (!work) break;
+    if (work.kind === "precheck") {
+      if (env.precheck?.requestKey === work.requestKey) break;
+      env.precheck = { requestKey: work.requestKey, data: await safePrecheck(av.chain, work.recipient, work.amountYocto) };
+      continue;
+    }
+    if (drove.has(work.attemptId)) break;      // drive each attempt at most once per advance
+    drove.add(work.attemptId);
+    await driveAttempt(businessId, work.attemptId, av.chain);
+  }
+  const unfinished = await runRead(tx => tx.attempts(businessId).some(a => a.run_id === runId && !TERMINAL_ATTEMPT_STATUSES.includes(a.status)));
+  return { advanced, more: !unfinished && last.more, settling: unfinished || last.settling };
+}
+
+type ChainWork = { kind: "precheck"; requestKey: string; recipient: string; amountYocto: string } | { kind: "attempt"; attemptId: string };
+
+/** What chain work the run needs before it can move on (read-only). */
+function chainWorkFor(tx: RunTx, businessId: string, runId: string, env: RunEnv): ChainWork | null {
+  const att = tx.attempts(businessId).filter(a => a.run_id === runId && !TERMINAL_ATTEMPT_STATUSES.includes(a.status)).at(-1);
+  if (att) return { kind: "attempt", attemptId: att.id };
+  const run = tx.run(businessId, runId);
+  if (!run || run.status !== "running" || run.mode !== "testnet") return null;
+  const step = docOf(tx, run)?.steps.find(s => s.id === run.cursor);
+  const req = firstRequest(run.records);
+  if (step?.type !== "security_check" || !req?.recipient_account || !req.amount_yocto) return null;
+  const key = requestKey(req);
+  return env.precheck?.requestKey === key ? null : { kind: "precheck", requestKey: key, recipient: req.recipient_account, amountYocto: req.amount_yocto };
+}
+
+async function safePrecheck(chain: PaymentChain, recipient: string, amountYocto: string): Promise<ChainPrecheck> {
+  try {
+    return await chain.precheck({ recipient, amountYocto });
+  } catch {
+    return { failures: [{ code: "CHAIN_UNAVAILABLE", detail: "the chain checks could not be completed" }], onchainSpentTodayYocto: null, nearPolicyVersion: null, onchainLimits: null, checkedAt: new Date().toISOString() };
+  }
+}
+
+async function runBatch(businessId: string, runId: string, env: RunEnv, hooks?: RunHooks): Promise<AdvanceResult> {
+  {
     const started = Date.now();
     let advanced = 0;
     const first = await runRead(tx => ({ run: tx.run(businessId, runId), steps: tx.steps(runId) }));
@@ -222,7 +353,7 @@ export async function advanceRun(businessId: string, runId: string, hooks?: RunH
     }
     try {
       while (advanced < MAX_BATCH_STEPS && Date.now() - started < BATCH_BUDGET_MS) {
-        const r = await runOneStep(businessId, runId, hooks);
+        const r = await runOneStep(businessId, runId, env, hooks);
         if (r === "executed") { advanced++; continue; }
         if (r === "retry") continue;
         break;   // "stopped": waiting, paused, ended, or a control request was honoured
@@ -233,12 +364,12 @@ export async function advanceRun(businessId: string, runId: string, hooks?: RunH
     }
     const after = await runRead(tx => tx.run(businessId, runId));
     return { advanced, more: !!after && after.status === "running" && after.cursor !== null, settling: false };
-  });
+  }
 }
 
 type StepOutcome = "executed" | "retry" | "stopped";
 
-async function runOneStep(businessId: string, runId: string, hooks?: RunHooks): Promise<StepOutcome> {
+async function runOneStep(businessId: string, runId: string, env: RunEnv, hooks?: RunHooks): Promise<StepOutcome> {
   // 1 · Fresh read: every write queued before this read is visible (kill switch, pause, stop).
   const pre = await runTransact(tx => {
     const run = tx.run(businessId, runId);
@@ -272,6 +403,18 @@ async function runOneStep(businessId: string, runId: string, hooks?: RunHooks): 
         tx.appendEvent(businessId, "system", "run.paused", `run:${runId}`, "paused", runId, { reason: `agent_paused:${paused}` });
       }
       return { stop: true as const };
+    }
+    // M5 · testnet: chain work happens outside the lock, so stop here when the step needs it first.
+    if (run.mode === "testnet") {
+      if (!env.chain) return { stop: true as const };
+      const req = firstRequest(run.records);
+      if (step.type === "security_check" && req?.recipient_account && req.amount_yocto) {
+        const fresh = env.precheck?.requestKey === requestKey(req) && Date.now() - Date.parse(env.precheck.data.checkedAt) <= PRECHECK_MAX_AGE_MS;
+        if (!fresh) return { stop: true as const };
+      }
+      if (step.type === "payment" && req && tx.attempts(businessId).some(a => a.request_id === req.request_id && !TERMINAL_ATTEMPT_STATUSES.includes(a.status))) {
+        return { stop: true as const };   // Phase B in progress: the executor drives it
+      }
     }
     // 2 · Save the step as running BEFORE executing it (or reuse a waiting approval step's record).
     const prior = tx.steps(runId).filter(s => s.step_id === step.id);
@@ -309,7 +452,7 @@ async function runOneStep(businessId: string, runId: string, hooks?: RunHooks): 
   await hooks?.beforeCommit?.(step.id);
 
   // 4 · Commit in ONE atomic write, re-checking the kill switch, the control request and the status.
-  return runTransact(tx => commitStep(tx, { businessId, runId, step, doc, rec, exec, work, durationMs, nowIsoStr: nowIso(hooks) }));
+  return runTransact(tx => commitStep(tx, { businessId, runId, step, doc, rec, exec, work, durationMs, nowIsoStr: nowIso(hooks), env }));
 }
 
 const needsAgentHandler = (s: Step) => s.type === "agent_task" || (s.type === "notify") || s.type === "payment";
@@ -320,7 +463,7 @@ function executeAgentStep(step: Step, doc: WorkflowDoc, run: RunRecord, agents: 
   const scopes = scopeAccess(work, { budget });
   const collect = (b: ReturnType<typeof makeBroker>) => { for (const [to, from] of [[toolsUsed, b.toolsUsed], [reads, b.reads], [writes, b.writes], [simulated, b.simulated]] as const) for (const x of from) if (!to.includes(x)) to.push(x); };
   const brokerFor = (key: string | null, tools: readonly string[], r: readonly string[], w: readonly string[]) => makeBroker({ agent: brokerAgent(agentFor(agents, key)), step: { id: step.id, tools, reads: r, writes: w }, gate, scopes });
-  const input = { runId: run.id, params: doc.params };
+  const input = { runId: run.id, params: doc.params, mode: run.mode };
 
   // The Orchestrator delegates each specialist task (its delegate_task call is gated like any other).
   if (step.type === "agent_task" && doc.coordinator === "orchestrator" && step.agent !== "orchestrator" && agentFor(agents, "orchestrator")) {
@@ -370,13 +513,14 @@ function summaryText(work: Work): string {
   const orders = (rec.orders ?? []) as Array<{ total_ngn?: number; status: string }>;
   const reorder = rec.reorder as { item: string; quantity: number; unit: string } | null | undefined;
   const proposal = ((rec.purchase_proposals ?? []) as Array<{ supplier: string; total_ngn: number }>)[0];
-  const paid = rec.payment_outcome as { amount: number; counterparty: string } | undefined;
+  const paid = rec.payment_outcome as { amount: number; counterparty: string; testnet?: { amount_near: string; account: string; tx_hash: string } } | undefined;
   const parts: string[] = [];
   const o = orders.at(-1);
   if (o) parts.push(o.status === "confirmed" ? `Demo order confirmed (₦${(o.total_ngn ?? 0).toLocaleString("en-NG")}).` : "The demo order was rejected.");
   parts.push(reorder ? `${reorder.item} needed a reorder of ${reorder.quantity} ${reorder.unit}.` : "No reorder was needed.");
   if (proposal) parts.push(`${proposal.supplier} was recommended (₦${proposal.total_ngn.toLocaleString("en-NG")}).`);
-  if (paid) parts.push(`Simulated payment recorded for ${paid.counterparty}: test run, no transaction.`);
+  if (paid?.testnet) parts.push(`Paid ${paid.testnet.amount_near} NEAR on NEAR testnet to ${paid.testnet.account} (${paid.counterparty}); verified on-chain, transaction ${paid.testnet.tx_hash}.`);
+  else if (paid) parts.push(`Simulated payment recorded for ${paid.counterparty}: test run, no transaction.`);
   return parts.join(" ");
 }
 
@@ -387,7 +531,7 @@ function summaryText(work: Work): string {
 type CommitArgs = {
   businessId: string; runId: string; step: Step; doc: WorkflowDoc; rec: RunStepRecord;
   exec: { output: unknown; reasoning: string | null; toolsUsed: string[]; reads: string[]; writes: string[]; simulated: string[]; error: { code: string; message: string } | null; transient: boolean };
-  work: Work; durationMs: number; nowIsoStr: string;
+  work: Work; durationMs: number; nowIsoStr: string; env: RunEnv;
 };
 
 function commitStep(tx: RunTx, a: CommitArgs): StepOutcome {
@@ -442,23 +586,29 @@ function commitStep(tx: RunTx, a: CommitArgs): StepOutcome {
       break;
     }
     case "security_check": {
-      const req = ((rec2.payment_requests ?? []) as Array<{ request_id: string; beneficiary: string; amount_ngn: number; channel: { kind: string; method: string } }>)[0];
-      if (!req) { finishStep("failed", { error: { code: "NO_PAYMENT_REQUEST", message: "There's no payment request to check." } }); endRun(tx, run, "failed", "NO_PAYMENT_REQUEST", "system", {}, ["running"]); return "stopped"; }
+      const req = firstRequest(rec2);
+      const testnet = run.mode === "testnet";
+      const near = testnet ? nearAction(req) : undefined;
+      if (!req || (testnet && !near)) { finishStep("failed", { error: { code: "NO_PAYMENT_REQUEST", message: "There's no payment request to check." } }); endRun(tx, run, "failed", "NO_PAYMENT_REQUEST", "system", {}, ["running"]); return "stopped"; }
       const finance = agentFor(tx.agents(businessId), "finance");
+      const pre = testnet && a.env.precheck?.requestKey === requestKey(req) ? a.env.precheck.data : null;
       const result = evaluate(
-        { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: "system" },
-        { ...gateBase(tx, businessId, doc, snap, a.nowIsoStr), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"] },
+        { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: "system", near },
+        { ...gateBase(tx, businessId, doc, snap, a.nowIsoStr), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"],
+          near: testnet ? nearContext(tx, businessId, snap, pre, a.nowIsoStr) : undefined },
       );
       const hash = actionHash({ businessId, runId, requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, method: "request_payment" });
       const d = tx.appendDecision({
         business_id: businessId, run_id: runId, step_id: step.id, agent_key: "finance",
-        action: { request_id: req.request_id, beneficiary: req.beneficiary, amount_ngn: req.amount_ngn, channel: req.channel, tool: "request_payment" },
-        action_hash: hash, decision: result.decision, reason_codes: result.reasons, signals: result.signals, policy_version: result.policyVersion, provenance: { source: "system" }, mode: "test_run",
+        action: { request_id: req.request_id, beneficiary: req.beneficiary, amount_ngn: req.amount_ngn, channel: req.channel, tool: "request_payment", ...(near ? { recipient_account: near.recipientAccount, amount_yocto: near.amountYocto } : {}) },
+        action_hash: hash, decision: result.decision, reason_codes: result.reasons, signals: result.signals, policy_version: result.policyVersion, provenance: { source: "system" }, mode: run.mode,
       });
       rec2.security_decision_id = d.id;
-      tx.appendEvent(businessId, "system", "security.decision", `decision:${d.id}`, result.decision, runId, { reasons: result.reasons, mode: "test_run" });
+      tx.appendEvent(businessId, "system", "security.decision", `decision:${d.id}`, result.decision, runId, { reasons: result.reasons, mode: run.mode });
       exec.output = { decision: result.decision, reasons: result.reasons };
-      exec.reasoning = `Security check: ${result.decision}${result.reasons.length ? ` (${result.reasons.join(", ")})` : ""}. Test-run decision on demo data; on-chain checks run from the next stage.`;
+      exec.reasoning = `Security check: ${result.decision}${result.reasons.length ? ` (${result.reasons.join(", ")})` : ""}. ` + (testnet
+        ? `NEAR testnet: rules checked in both currencies, plus the treasury's readiness and the on-chain allowlist${pre ? "" : " (the chain checks couldn't run, so the payment is blocked)"}. ${result.decision === "BLOCK" ? "Nothing will be signed." : "Your approval is required before anything is signed."}`
+        : "Test-run decision on demo data; on-chain checks run from the next stage.");
       rec.agent_key = "system";
       finishStep("succeeded", { agent_key: "system" });
       advance(result.decision.toLowerCase());
@@ -507,11 +657,21 @@ function commitApproval(tx: RunTx, a: CommitArgs, run: RunRecord, finishStep: Fi
   let approval = tx.approvals(businessId).find(x => x.run_id === runId && x.decision_id === decision.id);
   if (!approval) {
     if (decision.decision === "BLOCK") { exec.output = { approved: false }; exec.reasoning = "Blocked by the security check."; finishStep("succeeded"); advance("rejected"); return "executed"; }
-    const auto = decision.decision === "ALLOW";
+    const testnet = run.mode === "testnet";
+    // Testnet: NEVER automatic, even on ALLOW (R5); the approval binds the exact payment (V1).
+    const auto = decision.decision === "ALLOW" && !testnet;
+    let binding: ReturnType<typeof currentBinding> = null;
+    if (testnet) {
+      const npv = (decision.signals as { near_policy_version?: string | null }).near_policy_version;
+      binding = a.env.chain && npv ? currentBinding(tx, run, { gateDecisionId: decision.id, target: a.env.chain.target, nearPolicyVersion: npv }) : null;
+      if (!binding) { finishStep("failed", { error: { code: "APPROVAL_STALE", message: "The payment couldn't be bound to an approval." } }); endRun(tx, run, "failed", "APPROVAL_STALE", "system", {}, ["running"]); return "stopped"; }
+    }
+    const reqFull = firstRequest(rec2);
     approval = tx.insertApproval({
-      business_id: businessId, run_id: runId, decision_id: decision.id, request_id: req.request_id, action_hash: decision.action_hash,
+      business_id: businessId, run_id: runId, decision_id: decision.id, request_id: req.request_id, action_hash: binding ? testnetActionHash(binding) : decision.action_hash,
       amount_ngn: req.amount_ngn, beneficiary: req.beneficiary, reason_codes: decision.reason_codes, status: auto ? "approved" : "pending", auto_approved: auto,
       expires_at: expiresAt(tx.now), decided_at: auto ? tx.now : null, decided_by: auto ? "system" : null, consumed_at: null, invalidated_reason: null,
+      ...(binding ? { mode: "testnet" as const, binding, recipient_account: reqFull?.recipient_account, amount_yocto: reqFull?.amount_yocto } : {}),
     });
     tx.appendEvent(businessId, "system", auto ? "approval.approved" : "approval.requested", `approval:${approval.id}`, approval.status, runId, { auto_approved: auto, reasons: decision.reason_codes });
     if (!auto) {
@@ -556,8 +716,9 @@ function commitPayment(tx: RunTx, a: CommitArgs, run: RunRecord, finishStep: Fin
     return "stopped" as const;
   };
   if (!req) return fail("NO_PAYMENT_REQUEST", "There's no payment request.", "failed");
+  if (run.mode === "testnet") return commitTestnetPayment(tx, a, run, finishStep, advance, fail);
   // Reconciliation: an outcome for this request already exists → reuse it, never produce a second one.
-  const existing = tx.ledger(businessId).find(l => l.request_id === req.request_id);
+  const existing = tx.ledger(businessId).find((l): l is Extract<typeof l, { mode: "test_run" }> => l.request_id === req.request_id && l.mode === "test_run");
   if (existing) {
     rec2.payment_outcome = { amount: existing.amount, counterparty: existing.counterparty, ledger_id: existing.id };
     exec.output = { reconciled: true, ledger_id: existing.id };
@@ -590,11 +751,103 @@ function commitPayment(tx: RunTx, a: CommitArgs, run: RunRecord, finishStep: Fin
   return "executed";
 }
 
+/**
+ * M5 · The testnet payment step.
+ * Phase A (no attempt yet; atomic): re-check the hard rules, recompute the approval binding from the
+ * current state, count the payment against the armed batch, consume the owner's approval ONCE and
+ * record a durable `prepared` attempt. The step then waits while the executor (outside the lock) does
+ * Phase B. Phase C (attempt final): move the run on from the VERIFIED outcome only.
+ */
+function commitTestnetPayment(tx: RunTx, a: CommitArgs, run: RunRecord, finishStep: Finish, advance: Advance, fail: (code: string, message: string, status: RunStatus) => "stopped"): StepOutcome {
+  const { businessId, runId, work, exec, doc } = a;
+  const snap = work.snapshot as unknown as DemoScenario;
+  const rec2 = work.records as Record<string, unknown>;
+  const req = firstRequest(rec2)!;
+  const near = nearAction(req);
+  if (!near) return fail("NO_PAYMENT_REQUEST", "There's no testnet payment request.", "failed");
+  const prior = tx.attempts(businessId).filter(x => x.request_id === req.request_id).at(-1);
+
+  // ---- Phase C: the attempt is final ---------------------------------------------------------------
+  if (prior) {
+    const nearAmt = Agents.nearText(prior.amount_yocto);
+    switch (prior.status) {
+      case "confirmed": {
+        rec2.payment_outcome = { amount: req.amount_ngn, counterparty: req.beneficiary, attempt_id: prior.id, testnet: { amount_near: nearAmt, account: prior.recipient, tx_hash: prior.tx_hash } };
+        exec.output = { testnet: true, attempt_id: prior.id, tx_hash: prior.tx_hash, amount_yocto: prior.amount_yocto, amount_near: nearAmt, recipient: prior.recipient, amount_ngn_business: prior.amount_ngn, verified_at: prior.verified_at };
+        exec.reasoning = `Paid ${nearAmt} NEAR to ${prior.recipient} on NEAR testnet through the treasury contract. Verified on-chain: final success, payout callback true, payout event matches, request record Paid. Business amount ₦${prior.amount_ngn.toLocaleString("en-NG")} (illustrative, not converted).`;
+        exec.simulated = [];
+        finishStep("succeeded");
+        advance("next");
+        tx.appendEvent(businessId, "agent:finance", "payment.settled", `attempt:${prior.id}`, "confirmed", runId, { tx_hash: prior.tx_hash });
+        return "executed";
+      }
+      case "failed_onchain":
+        exec.output = { testnet: true, attempt_id: prior.id, tx_hash: prior.tx_hash, status: "failed_onchain" };
+        return fail(prior.error?.code ?? "PAYOUT_FAILED", prior.error?.message ?? "The payout failed on-chain.", "failed");
+      case "expired_unexecuted":
+        return fail("PAYMENT_NOT_SENT", prior.error?.message ?? "The signed transaction expired without executing; nothing was paid.", "failed");
+      case "aborted": {
+        const code = prior.error?.code ?? "PAYMENT_ABORTED";
+        if (code === "KILL_SWITCH_ACTIVE" || code === "STOPPED_BY_OWNER") { finaliseCancel(tx, run, code, "system"); return "stopped"; }
+        return fail(code, prior.error?.message ?? "The payment was not sent.", code === "APPROVAL_STALE" ? "failed" : "blocked");
+      }
+      default:
+        return "stopped";      // still in flight (the executor drives it)
+    }
+  }
+
+  // ---- Phase A ------------------------------------------------------------------------------------
+  const chain = a.env.chain;
+  if (!chain) return "stopped";
+  const decision = tx.decisions(businessId).find(d => d.id === (rec2.security_decision_id as string | undefined));
+  if (!decision) return fail("NO_DECISION", "No security decision to act on.", "failed");
+  const finance = agentFor(tx.agents(businessId), "finance");
+  const recheck = evaluate(
+    { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: "system", near },
+    { ...gateBase(tx, businessId, doc, snap, a.nowIsoStr, req.request_id), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"],
+      near: nearContext(tx, businessId, snap, precheckFromSignals(decision.signals), a.nowIsoStr) },
+  );
+  if (recheck.decision === "BLOCK") return fail(recheck.reasons[0] ?? "BLOCKED", "The payment no longer passes the security rules.", "blocked");
+  const approval = tx.approvals(businessId).find(x => x.run_id === runId && x.request_id === req.request_id && x.mode === "testnet" && x.status === "approved" && !x.consumed_at && !x.auto_approved);
+  if (!approval?.binding) return fail("PAYMENT_NOT_AUTHORISED", "No valid, unused owner approval matches this payment.", "failed");
+  const now = currentBinding(tx, run, { gateDecisionId: approval.binding.gate_decision_id, target: chain.target, nearPolicyVersion: approval.binding.near_policy_version });
+  const hash = now ? testnetActionHash(now) : "";
+  if (!now || hash !== approval.action_hash) {
+    const changed = now ? bindingDiff(approval.binding, now) : ["request"];
+    tx.patchApproval(businessId, approval.id, ["approved"], { status: "invalidated", invalidated_reason: `APPROVAL_STALE: ${changed.join(", ")}`, decided_at: tx.now, decided_by: "system" });
+    return fail("APPROVAL_STALE", `Changed since your approval: ${changed.join(", ")}. Nothing was signed.`, "failed");
+  }
+  const used = tx.useBatch(businessId, run.batch_id ?? "", near.amountYocto);
+  if (used !== "ok") return fail(used, used === "BATCH_NOT_ARMED" ? "The testnet batch is no longer armed." : "The testnet batch has no capacity left.", "blocked");
+  if (!tx.consumeApproval(businessId, approval.id, hash)) return fail("PAYMENT_NOT_AUTHORISED", "No valid, unused owner approval matches this payment.", "failed");
+  const attempt = tx.insertAttempt({
+    business_id: businessId, run_id: runId, request_id: req.request_id, batch_id: run.batch_id!, approval_id: approval.id, action_hash: hash, status: "prepared",
+    recipient: near.recipientAccount, supplier_name: req.beneficiary, amount_yocto: near.amountYocto, amount_ngn: req.amount_ngn,
+    lease_owner: null, lease_expires_at: null, pre_sign_errors: 0, nonce: null, signer_public_key: null, tx_hash: null, signed_tx_b64: null,
+    signed_block_hash: null, signed_block_height: null, validity_period_blocks: null, expires_after_height: null, broadcasts: 0,
+    outcome: null, gas_burnt: null, verified_at: null, error: null, checks: [],
+  });
+  tx.appendEvent(businessId, "agent:finance", "payment.prepared", `attempt:${attempt.id}`, "prepared", runId, { amount_yocto: near.amountYocto, recipient: near.recipientAccount, batch: run.batch_id });
+  exec.output = { testnet: true, attempt_id: attempt.id, status: "prepared", amount_yocto: near.amountYocto, amount_near: Agents.nearText(near.amountYocto), recipient: near.recipientAccount };
+  exec.reasoning = `Your approval was used once for this exact payment. Sending ${Agents.nearText(near.amountYocto)} NEAR to ${near.recipientAccount} on NEAR testnet: the signer re-checks everything, then the transaction is saved before it is sent.`;
+  finishStep("waiting", { ended_at: null, duration_ms: null });
+  tx.patchRun(businessId, runId, { records: work.records, demo_snapshot: work.snapshot, exec_ms: run.exec_ms + a.durationMs }, { status: ["running"], control: run.control });
+  return "stopped";
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Owner decisions and controls (never execute steps)
 // ---------------------------------------------------------------------------------------------------
 
 export async function decideApproval(businessId: string, approvalId: string, decision: "approve" | "reject"): Promise<{ runId: string }> {
+  // M5: approving a testnet payment re-checks its binding against the chain target in use NOW.
+  const isTestnet = decision === "approve" && (await runRead(tx => tx.approvals(businessId).find(x => x.id === approvalId)?.mode)) === "testnet";
+  let target: PaymentChain["target"] | null = null;
+  if (isTestnet) {
+    const av = await getPaymentChain();
+    if (!av.ok) throw new ServiceError(av.code, 503, av.message);
+    target = av.chain.target;
+  }
   return lockWait(businessId, async () => {
     const out = await runTransact(tx => {
       const a = tx.approvals(businessId).find(x => x.id === approvalId);
@@ -619,9 +872,30 @@ export async function decideApproval(businessId: string, approvalId: string, dec
         }
         const snap = run.demo_snapshot as DemoScenario;
         const finance = agentFor(tx.agents(businessId), "finance");
+        let nearCtx: NearGateContext | undefined;
+        let near: ReturnType<typeof nearAction>;
+        if (a.mode === "testnet") {
+          // Testnet: the batch must still be armed, and every bound field must be unchanged (V1).
+          const batch = tx.armedBatch(businessId);
+          const stale = (code: string, message: string) => {
+            tx.patchApproval(businessId, a.id, ["pending"], { status: "invalidated", invalidated_reason: code, decided_at: tx.now, decided_by: "system" });
+            tx.appendEvent(businessId, "system", "approval.invalidated", `approval:${a.id}`, "invalidated", run.id, { reason: code });
+            endRun(tx, run, "failed", code, "system", { error: { code, message } });
+            return { err: [code, 409, message] as const, runId: run.id };
+          };
+          if (!batch || batch.id !== run.batch_id) return stale("BATCH_NOT_ARMED", "The testnet batch for this run is no longer armed, so the approval was invalidated.");
+          const now = a.binding && target ? currentBinding(tx, run, { gateDecisionId: a.binding.gate_decision_id, target, nearPolicyVersion: a.binding.near_policy_version }) : null;
+          if (!a.binding || !now || testnetActionHash(now) !== a.action_hash) {
+            const changed = a.binding && now ? bindingDiff(a.binding, now).join(", ") : "the payment";
+            return stale("APPROVAL_STALE", `Something this approval covered has changed (${changed}), so it was invalidated. Nothing was signed.`);
+          }
+          const d = tx.decisions(businessId).find(x => x.id === a.decision_id);
+          near = nearAction(firstRequest(run.records));
+          nearCtx = nearContext(tx, businessId, snap, precheckFromSignals(d?.signals ?? {}), tx.now);
+        }
         const r = evaluate(
-          { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: a.request_id, beneficiary: a.beneficiary, amountNgn: a.amount_ngn, channel: { kind: "treasury_contract", method: "request_payment" }, provenance: "system" },
-          { ...gateBase(tx, businessId, wf.steps, snap, tx.now, a.request_id), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"] },
+          { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: a.request_id, beneficiary: a.beneficiary, amountNgn: a.amount_ngn, channel: { kind: "treasury_contract", method: "request_payment" }, provenance: "system", near },
+          { ...gateBase(tx, businessId, wf.steps, snap, tx.now, a.request_id), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"], near: nearCtx },
         );
         if (r.decision === "BLOCK") {
           endRun(tx, run, "blocked", r.reasons[0] ?? "BLOCKED", "system");
@@ -699,6 +973,8 @@ export async function setKillSwitch(businessId: string, active: boolean): Promis
   await runTransact(tx => {
     const changed = tx.setKillSwitch(businessId, active);
     tx.appendEvent(businessId, "owner", active ? "kill_switch.on" : "kill_switch.off", `business:${businessId}`, changed ? "applied" : "no_change", businessId, {});
+    // M5 (§14): the kill switch also disarms any armed testnet batch, at once.
+    if (active && tx.disarmBatches(businessId, "KILL_SWITCH_ACTIVE") > 0) tx.appendEvent(businessId, "owner", "testnet.disarmed", `business:${businessId}`, "disarmed", businessId, { reason: "KILL_SWITCH_ACTIVE" });
   });
   if (!active) return { finalised: true };
   try {
@@ -715,6 +991,42 @@ export async function setKillSwitch(businessId: string, active: boolean): Promis
     if (e instanceof LockBusyError) return { finalised: false };   // persisted; the runner finalises at the next step
     throw e;
   }
+}
+
+/** NEAR → yoctoNEAR, exactly (decimal string with up to 24 places). */
+export function nearToYocto(near: string): string {
+  const m = /^(\d+)(?:\.(\d{1,24}))?$/.exec(near);
+  if (!m) throw new ServiceError("VALIDATION_FAILED", 400, "Give the NEAR amount as a decimal, e.g. 0.1.");
+  return (BigInt(m[1]) * BigInt("1000000000000000000000000") + BigInt((m[2] ?? "").padEnd(24, "0") || "0")).toString();
+}
+
+/** The most NEAR one batch may move: the contract's daily cap (0.25 NEAR). */
+const BATCH_MAX_TOTAL_YOCTO = BigInt("250000000000000000000000");
+
+/**
+ * M5 · Arm the owner's approved testnet batch (plan §8.4). A batch never approves a payment: every
+ * payment still needs its own owner approval. Refused while the kill switch is on.
+ */
+export async function armTestnetBatch(businessId: string, input: { batchRef: string; maxPayments: number; maxTotalNear: string; expiresInMinutes: number }): Promise<void> {
+  const total = nearToYocto(input.maxTotalNear);
+  if (BigInt(total) <= BigInt(0) || BigInt(total) > BATCH_MAX_TOTAL_YOCTO) throw new ServiceError("VALIDATION_FAILED", 400, "A batch can move more than 0 and at most 0.25 NEAR (the contract's daily cap).");
+  await lockWait(businessId, async () => {
+    const out = await runTransact(tx => {
+      const b = tx.business(businessId);
+      if (!b) return { err: ["NOT_FOUND", 404, "Not found."] as const };
+      if (b.kill_switch) return { err: ["KILL_SWITCH_ACTIVE", 409, "Switch the kill switch off before arming a testnet batch."] as const };
+      const batch = tx.armBatch({ business_id: businessId, batch_ref: input.batchRef, max_payments: input.maxPayments, max_total_yocto: total, expires_at: new Date(Date.parse(tx.now) + input.expiresInMinutes * 60_000).toISOString() });
+      tx.appendEvent(businessId, "owner", "testnet.armed", `batch:${batch.id}`, "armed", businessId, { batch_ref: batch.batch_ref, max_payments: batch.max_payments, max_total_yocto: batch.max_total_yocto, expires_at: batch.expires_at });
+      return { ok: true as const };
+    });
+    if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);
+  });
+}
+
+export async function disarmTestnetBatch(businessId: string): Promise<void> {
+  await runTransact(tx => {
+    if (tx.disarmBatches(businessId, "OWNER") > 0) tx.appendEvent(businessId, "owner", "testnet.disarmed", `business:${businessId}`, "disarmed", businessId, { reason: "OWNER" });
+  });
 }
 
 /** Pause or resume one approved agent (D4). Resuming lets runs paused for that agent continue. */

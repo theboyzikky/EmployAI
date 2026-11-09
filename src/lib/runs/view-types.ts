@@ -1,6 +1,6 @@
 // Client-safe types for the Runs tab (M4). Everything money-related is illustrative NGN on fictional
 // demo data and labelled "Test run — no transaction".
-import type { ApprovalStatus, GateDecision, RunStatus, ScenarioKey, StepStatus } from "./types";
+import type { ApprovalStatus, AttemptStatus, GateDecision, RunMode, RunStatus, ScenarioKey, StepStatus } from "./types";
 
 export type RunScenarioCard = { key: ScenarioKey; title: string; description: string; changes: string; expected: { decision: GateDecision | null; end: string } };
 
@@ -27,7 +27,11 @@ export type RunsView = {
   activeRunId: string | null;
   runs: RunSummary[];                       // newest first
   demoLabel: string;
+  /** M5 · the armed NEAR testnet batch (read from the store only; GET makes no RPC call). */
+  testnet: { batch: TestnetBatchView | null; recipients: Array<{ supplier: string; account: string }> };
 };
+
+export type TestnetBatchView = { ref: string; maxPayments: number; paymentsUsed: number; maxTotalNear: string; usedNear: string; expiresAt: string };
 
 export type RunStepView = {
   id: string; seq: number; stepId: string; title: string; type: string; agentKey: string | null; agentName: string; requester: string;
@@ -41,11 +45,20 @@ export type RunApprovalView = {
   reasons: Array<{ code: string; text: string }>; expiresAt: string; decidedAt: string | null; decidedBy: string | null;
   /** True when the expiry time has passed but the expiry isn't persisted yet (GET never writes). */
   expiredNotPersisted: boolean; thresholdNgn: number; maxPaymentNgn: number; rationale: string | null;
+  /** M5 · present for a NEAR testnet payment: what approving will sign. */
+  testnet: { recipientAccount: string; amountNear: string; amountYocto: string; contract: string; agent: string; batchRef: string } | null;
+};
+
+/** M5 · the payment attempt of a testnet run (no signed bytes or key material are ever exposed). */
+export type PaymentAttemptView = {
+  id: string; status: AttemptStatus; statusText: string; recipient: string; amountNear: string; amountNgn: number;
+  txHash: string | null; explorerUrl: string | null; nonce: string | null; signedBlockHeight: number | null; expiresAfterHeight: number | null;
+  broadcasts: number; verifiedAt: string | null; error: { code: string; message: string } | null; lastCheck: { at: string; result: string; detail: string } | null;
 };
 
 export type RunView = {
   run: RunSummary & {
-    mode: "test_run"; cursor: string | null; stepsDone: number; execMs: number; pauseReason: string | null; control: string | null;
+    mode: RunMode; batchRef: string | null; cursor: string | null; stepsDone: number; execMs: number; pauseReason: string | null; control: string | null;
     summary: string | null; error: { code: string; message: string } | null; expected: { decision: GateDecision | null; end: string };
     actual: { decision: GateDecision | null; end: string | null };
     /** A step was cut off and its lease has expired: shown, then persisted by the next mutating call. */
@@ -56,7 +69,8 @@ export type RunView = {
   steps: RunStepView[];
   decisions: Array<{ id: string; decision: GateDecision; reasons: Array<{ code: string; text: string }>; createdAt: string; signals: Record<string, unknown> }>;
   approval: RunApprovalView | null;
-  ledger: Array<{ id: string; amount: number; counterparty: string; label: string; txHash: null; occurredAt: string }>;
+  ledger: Array<{ id: string; mode: RunMode; amountText: string; counterparty: string; supplier: string | null; label: string; txHash: string | null; explorerUrl: string | null; status: string; occurredAt: string }>;
+  payment: PaymentAttemptView | null;
   events: Array<{ id: string; actor: string; type: string; subject: string; status: string; createdAt: string }>;
   more: boolean;
 };

@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","result":{"block_hash":"7nL2afD2BPsH1o2MSKdZWMAHCSen1Swh1ncttw8HUzUr","block_height":276931645,"nonce":276931238000000,"permission":{"FunctionCall":{"allowance":null,"method_names":["request_payment"],"receiver_id":"treasury.employai-demo.testnet"}}},"id":"m5"}

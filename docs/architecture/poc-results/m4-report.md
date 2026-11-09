@@ -1,7 +1,7 @@
 # M4 report · Workflow execution and agent collaboration (test runs)
 
 **Date:** 2026-11-07
-**Status:** implemented, **uncommitted**, waiting for the owner's review. Nothing is pushed.
+**Status:** implemented and reviewed; committed locally on 2026-11-07 as `1e7f100`. Nothing is pushed.
 **Plan:** [m4-proposal.md](../m4-proposal.md), with decisions D1–D16 and D18–D23 (D17 dropped) and constraints C1–C7.
 
 ## Summary

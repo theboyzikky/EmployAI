@@ -24,11 +24,31 @@ export type DemoScenario = {
     prior_payments?: number;
     /** v2: whether the supplier can deliver today. */
     available_today?: boolean;
+    /**
+     * M5: the supplier's NEAR TESTNET account (owner-created, on the treasury's on-chain allowlist) and a
+     * SEPARATE testnet price list in yoctoNEAR per unit (R4: never derived from the NGN price). Only
+     * approved suppliers have one; agents never introduce account IDs (plan §9).
+     */
+    testnet_account?: string;
+    near_per_unit_yocto?: string;
   }>;
   /** v2: how much stock one plate uses. */
   recipes?: Array<{ item: string; uses: Array<{ stock_item: string; qty: number }> }>;
   /** v2: read-only demo policy values (illustrative NGN). */
   policy?: { version: string; daily_limit_ngn: number };
+  /** M5: the NEAR testnet app policy; it must equal the treasury's on-chain limits (R16). */
+  near_policy?: NearAppPolicy;
+};
+
+export type NearAppPolicy = { version: string; max_per_tx_yocto: string; daily_cap_yocto: string; approval_threshold_yocto: string };
+
+/** 1 milliNEAR (0.001 NEAR) in yoctoNEAR. */
+const MILLI_NEAR = "1000000000000000000000";
+export const NEAR_APP_POLICY: NearAppPolicy = {
+  version: "near-policy-v1",
+  max_per_tx_yocto: "100000000000000000000000",          // 0.1 NEAR (= contract max_per_tx)
+  daily_cap_yocto: "250000000000000000000000",           // 0.25 NEAR (= contract daily_cap)
+  approval_threshold_yocto: "50000000000000000000000",   // 0.05 NEAR → WARN reason (approval is always required)
 };
 
 export function restaurantDemoScenario(): DemoScenario {
@@ -51,8 +71,8 @@ export function restaurantDemoScenario(): DemoScenario {
       { item: "Tomatoes", unit: "kg", on_hand: 14, reorder_point: 10, par_level: 30 },
     ],
     suppliers: [
-      { name: "Mainland Grains (demo)", approved: true, item: "Rice", price_per_unit_ngn: 1_450, delivery_days: 1, prior_payments: 0, available_today: true },
-      { name: "Lagos Fresh Foods (demo)", approved: true, item: "Rice", price_per_unit_ngn: 1_380, delivery_days: 2, prior_payments: 6, available_today: true },
+      { name: "Mainland Grains (demo)", approved: true, item: "Rice", price_per_unit_ngn: 1_450, delivery_days: 1, prior_payments: 0, available_today: true, testnet_account: "supplier-2.employai-demo.testnet", near_per_unit_yocto: MILLI_NEAR },
+      { name: "Lagos Fresh Foods (demo)", approved: true, item: "Rice", price_per_unit_ngn: 1_380, delivery_days: 2, prior_payments: 6, available_today: true, testnet_account: "supplier-1.employai-demo.testnet", near_per_unit_yocto: MILLI_NEAR },
       { name: "QuickSupply Express (demo)", approved: false, item: "Rice", price_per_unit_ngn: 1_150, delivery_days: 0, prior_payments: 0, available_today: true },
     ],
     recipes: [
@@ -62,6 +82,7 @@ export function restaurantDemoScenario(): DemoScenario {
       { item: "Pepper soup", uses: [{ stock_item: "Chicken", qty: 0.25 }, { stock_item: "Tomatoes", qty: 0.1 }] },
     ],
     policy: { version: "demo-policy-v2", daily_limit_ngn: 500_000 },
+    near_policy: { ...NEAR_APP_POLICY },
   };
 }
 

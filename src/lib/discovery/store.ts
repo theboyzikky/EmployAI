@@ -9,7 +9,7 @@ import { emptyProfile, type ProfileDoc } from "./profile";
 import { emptyCaseFile } from "./casefile";
 import type { DemoScenario } from "@/lib/workflows/demo-data";
 import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workflows/schema";
-import type { ActivityEvent, ApprovalRecord, LedgerRecord, RunRecord, RunStepRecord, SecurityDecisionRecord } from "@/lib/runs/types";
+import type { ActivityEvent, ApprovalRecord, LedgerRecord, PaymentAttempt, RunRecord, RunStepRecord, SecurityDecisionRecord, TestnetBatch } from "@/lib/runs/types";
 
 /*
  * Records mirror the APPROVED database design (docs/architecture/03-database-design.md), so the
@@ -132,6 +132,10 @@ export type DevState = {
   approval_requests?: Record<string, ApprovalRecord[]>;
   ledger_entries?: Record<string, LedgerRecord[]>;
   activity_events?: Record<string, ActivityEvent[]>;
+  // M5 (additive, keyed by business id). Payment attempts hold the write-ahead record of every signed
+  // testnet transaction; they are never deleted.
+  testnet_batches?: Record<string, TestnetBatch[]>;
+  payment_attempts?: Record<string, PaymentAttempt[]>;
 };
 
 /**

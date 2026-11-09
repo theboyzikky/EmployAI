@@ -8,13 +8,25 @@ import { chooseSupplier, reorderFor } from "./scenarios";
 import { BrokerRefusal, type Broker } from "./tools";
 
 export type HandlerResult = { output: Record<string, unknown>; reasoning: string };
-export type HandlerInput = { broker: Broker; runId: string; params: Params };
+export type HandlerInput = { broker: Broker; runId: string; params: Params; mode?: "test_run" | "testnet" };
 
 type Order = { id: string; items: Array<{ item: string; qty: number; unit_price_ngn?: number }>; status: string; total_ngn?: number; rejection?: string };
 type Stock = { inventory: DemoScenario["inventory"]; recipes: NonNullable<DemoScenario["recipes"]>; reorder: ReturnType<typeof reorderFor> };
-type Proposal = { supplier: string; item: string; quantity: number; unit: string; unit_price_ngn: number; total_ngn: number; delivery_days: number };
+type Proposal = {
+  supplier: string; item: string; quantity: number; unit: string; unit_price_ngn: number; total_ngn: number; delivery_days: number;
+  /** M5: copied from the supplier's REGISTRY entry (never from free text); absent for unapproved suppliers. */
+  testnet_account?: string; near_per_unit_yocto?: string;
+};
 
 const naira = (n: number) => `₦${n.toLocaleString("en-NG")}`;
+/** yoctoNEAR → "0.031" (exact; no floating point). */
+export function nearText(yocto: string): string {
+  const v = BigInt(yocto);
+  const unit = BigInt("1000000000000000000000000");
+  const whole = v / unit;
+  const frac = (v % unit).toString().padStart(24, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole.toString();
+}
 const round = (n: number) => Math.round(n * 100) / 100;
 
 /** Order Agent · validate (or capture) the demo order against the demo menu. */
@@ -85,6 +97,7 @@ export function supplierChoice({ broker }: HandlerInput): HandlerResult {
   if (!chosen) throw new Error("NO_APPROVED_SUPPLIER");
   broker.use("propose_purchase");
   const proposal: Proposal = { supplier: chosen.name, item: need.item, quantity: need.quantity, unit: need.unit, unit_price_ngn: chosen.price_per_unit_ngn, total_ngn: chosen.price_per_unit_ngn * need.quantity, delivery_days: chosen.delivery_days };
+  if (chosen.testnet_account && chosen.near_per_unit_yocto) { proposal.testnet_account = chosen.testnet_account; proposal.near_per_unit_yocto = chosen.near_per_unit_yocto; }
   broker.write("purchase_proposals", [proposal]);
   const why = `${chosen.name} is the cheapest approved supplier that can deliver today: ${naira(chosen.price_per_unit_ngn)}/${need.unit} × ${need.quantity} ${need.unit} = ${naira(proposal.total_ngn)} (illustrative), delivery in ${chosen.delivery_days} day${chosen.delivery_days === 1 ? "" : "s"}.`;
   const ex = excluded.length ? ` Excluded: ${excluded.map(e => `${e.name} (${e.reason})`).join("; ")}.` : "";
@@ -92,19 +105,27 @@ export function supplierChoice({ broker }: HandlerInput): HandlerResult {
 }
 
 /** Finance Agent · prepare the payment REQUEST (it never pays). */
-export function paymentPrepare({ broker, runId }: HandlerInput): HandlerResult {
+export function paymentPrepare({ broker, runId, mode = "test_run" }: HandlerInput): HandlerResult {
   broker.use("read_budget");
   const budget = broker.read<{ max_payment_ngn: number; approval_threshold_ngn: number; daily_limit_ngn: number }>("budget");
   const [p] = broker.read<Proposal[]>("purchase_proposals");
   if (!p) throw new Error("NO_PROPOSAL");
-  const request = {
+  const testnet = mode === "testnet";
+  const request: Record<string, unknown> = {
     request_id: `${runId}:payment`, beneficiary: p.supplier, amount_ngn: p.total_ngn,
-    channel: { kind: "treasury_contract", method: "request_payment", network: "near-testnet", mode: "test_run" }, item: p.item, quantity: p.quantity,
+    channel: { kind: "treasury_contract", method: "request_payment", network: "near-testnet", mode }, item: p.item, quantity: p.quantity,
   };
+  if (testnet) {
+    // Two amounts, never converted (R4): the NEAR value comes from the separate testnet price list.
+    if (!p.testnet_account || !p.near_per_unit_yocto) throw new Error("NO_TESTNET_RECIPIENT");
+    request.recipient_account = p.testnet_account;
+    request.amount_yocto = (BigInt(p.near_per_unit_yocto) * BigInt(p.quantity)).toString();
+  }
   broker.write("payment_requests", [request]);
+  const near = testnet ? ` Testnet transaction: ${nearText(request.amount_yocto as string)} NEAR to ${p.testnet_account} (business amount ${naira(p.total_ngn)}, illustrative; neither is converted from the other).` : "";
   return {
     output: { request },
-    reasoning: `Prepared a payment request of ${naira(p.total_ngn)} to ${p.supplier} through the treasury contract (test run). Your limits: approval above ${naira(budget.approval_threshold_ngn)}, maximum ${naira(budget.max_payment_ngn)} per payment. The security check decides next; Finance can't pay anyone directly.`,
+    reasoning: `Prepared a payment request of ${naira(p.total_ngn)} to ${p.supplier} through the treasury contract (${testnet ? "NEAR testnet" : "test run"}).${near} Your limits: approval above ${naira(budget.approval_threshold_ngn)}, maximum ${naira(budget.max_payment_ngn)} per payment. The security check decides next; Finance can't pay anyone directly.`,
   };
 }
 

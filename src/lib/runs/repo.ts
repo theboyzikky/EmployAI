@@ -11,7 +11,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import { discoveryRepository, type AgentRecord, type AgentStatus, type BusinessRecord, type DevState, type WorkflowRecord } from "@/lib/discovery/store";
-import type { ActivityEvent, Actor, ApprovalRecord, ApprovalStatus, LedgerRecord, RunControl, RunRecord, RunStatus, RunStepRecord, SecurityDecisionRecord } from "./types";
+import type { ActivityEvent, Actor, ApprovalRecord, ApprovalStatus, LedgerRecord, PaymentAttempt, RunControl, RunRecord, RunStatus, RunStepRecord, SecurityDecisionRecord, TestnetBatch, TestnetLedgerRecord, TestRunLedgerRecord } from "./types";
 
 const copy = <T>(x: T): T => structuredClone(x);
 
@@ -29,6 +29,76 @@ export class RunTx {
   approvals(businessId: string): ApprovalRecord[] { return copy((this.s.approval_requests ?? {})[businessId] ?? []); }
   ledger(businessId: string): LedgerRecord[] { return copy((this.s.ledger_entries ?? {})[businessId] ?? []); }
   events(businessId: string): ActivityEvent[] { return copy((this.s.activity_events ?? {})[businessId] ?? []); }
+  batches(businessId: string): TestnetBatch[] { return copy((this.s.testnet_batches ?? {})[businessId] ?? []); }
+  attempts(businessId: string): PaymentAttempt[] { return copy((this.s.payment_attempts ?? {})[businessId] ?? []); }
+  attempt(businessId: string, attemptId: string): PaymentAttempt | null { const a = ((this.s.payment_attempts ?? {})[businessId] ?? []).find(x => x.id === attemptId); return a ? copy(a) : null; }
+  /** The currently armed batch (not disarmed, not expired), if any. */
+  armedBatch(businessId: string): TestnetBatch | null {
+    const b = ((this.s.testnet_batches ?? {})[businessId] ?? []).find(x => !x.disarmed_at && x.expires_at > this.now);
+    return b ? copy(b) : null;
+  }
+
+  // ---- M5 · testnet batches ----------------------------------------------------------------------
+  /** Arm a batch; any batch still armed is disarmed first (one armed batch per business). */
+  armBatch(b: Omit<TestnetBatch, "id" | "armed_at" | "disarmed_at" | "disarm_reason" | "payments_used" | "yocto_used">): TestnetBatch {
+    this.disarmBatches(b.business_id, "REPLACED");
+    const rec: TestnetBatch = { ...b, id: randomUUID(), armed_at: this.now, disarmed_at: null, disarm_reason: null, payments_used: 0, yocto_used: "0" };
+    ((this.s.testnet_batches ??= {})[b.business_id] ??= []).push(rec);
+    return copy(rec);
+  }
+
+  disarmBatches(businessId: string, reason: string): number {
+    let n = 0;
+    for (const x of (this.s.testnet_batches ?? {})[businessId] ?? []) if (!x.disarmed_at) { x.disarmed_at = this.now; x.disarm_reason = reason; n++; }
+    return n;
+  }
+
+  /** Count one payment against the batch, atomically, only if it is armed, unexpired and has capacity. */
+  useBatch(businessId: string, batchId: string, amountYocto: string): "ok" | "BATCH_NOT_ARMED" | "BATCH_LIMIT_REACHED" {
+    const b = ((this.s.testnet_batches ?? {})[businessId] ?? []).find(x => x.id === batchId);
+    if (!b || b.disarmed_at || b.expires_at <= this.now) return "BATCH_NOT_ARMED";
+    const total = BigInt(b.yocto_used) + BigInt(amountYocto);
+    if (b.payments_used + 1 > b.max_payments || total > BigInt(b.max_total_yocto)) return "BATCH_LIMIT_REACHED";
+    b.payments_used += 1; b.yocto_used = total.toString();
+    return "ok";
+  }
+
+  // ---- M5 · payment attempts ---------------------------------------------------------------------
+  insertAttempt(a: Omit<PaymentAttempt, "id" | "created_at" | "updated_at">): PaymentAttempt {
+    const list = ((this.s.payment_attempts ??= {})[a.business_id] ??= []);
+    if (list.some(x => x.request_id === a.request_id && !(["failed_onchain", "aborted", "expired_unexecuted"] as const).includes(x.status as never))) {
+      throw new Error("ATTEMPT_ALREADY_ACTIVE");   // one active attempt per request_id (plan §10)
+    }
+    const rec: PaymentAttempt = { ...a, id: randomUUID(), created_at: this.now, updated_at: this.now };
+    list.push(rec);
+    return copy(rec);
+  }
+
+  /**
+   * Compare-and-set patch of an attempt: applies only if its status is one of `expect` (and, when
+   * given, the lease is still held by `leaseOwner`). Attempts are never deleted.
+   */
+  patchAttempt(businessId: string, attemptId: string, expect: readonly PaymentAttempt["status"][], patch: Partial<Omit<PaymentAttempt, "id" | "business_id" | "run_id" | "request_id" | "created_at">>, leaseOwner?: string): boolean {
+    const a = ((this.s.payment_attempts ?? {})[businessId] ?? []).find(x => x.id === attemptId);
+    if (!a || !expect.includes(a.status)) return false;
+    if (leaseOwner !== undefined && a.lease_owner !== leaseOwner) return false;
+    Object.assign(a, patch, { updated_at: this.now });
+    return true;
+  }
+
+  /** Take the attempt's driving lease if it is free or expired (one driver at a time). */
+  claimAttempt(businessId: string, attemptId: string, owner: string, untilIso: string): PaymentAttempt | null {
+    const a = ((this.s.payment_attempts ?? {})[businessId] ?? []).find(x => x.id === attemptId);
+    if (!a) return null;
+    if (a.lease_owner && a.lease_owner !== owner && a.lease_expires_at && a.lease_expires_at > this.now) return null;
+    a.lease_owner = owner; a.lease_expires_at = untilIso; a.updated_at = this.now;
+    return copy(a);
+  }
+
+  releaseAttempt(businessId: string, attemptId: string, owner: string): void {
+    const a = ((this.s.payment_attempts ?? {})[businessId] ?? []).find(x => x.id === attemptId);
+    if (a && a.lease_owner === owner) { a.lease_owner = null; a.lease_expires_at = null; }
+  }
 
   // ---- business and agents ----------------------------------------------------------------------
   /** The only writer of `kill_switch`. Returns false when it was already in that state (idempotent). */
@@ -136,8 +206,8 @@ export class RunTx {
     return copy(rec);
   }
 
-  appendLedger(l: Omit<LedgerRecord, "id" | "occurred_at">): LedgerRecord {
-    const rec: LedgerRecord = { ...l, id: randomUUID(), occurred_at: this.now };
+  appendLedger(l: Omit<TestRunLedgerRecord, "id" | "occurred_at"> | Omit<TestnetLedgerRecord, "id" | "occurred_at">): LedgerRecord {
+    const rec = { ...l, id: randomUUID(), occurred_at: this.now } as LedgerRecord;
     ((this.s.ledger_entries ??= {})[l.business_id] ??= []).push(rec);
     return copy(rec);
   }

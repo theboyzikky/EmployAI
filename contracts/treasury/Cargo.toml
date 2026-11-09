@@ -1,0 +1,33 @@
+[package]
+name = "employai-treasury"
+description = "EmployAI treasury contract v1 (M5): owner-controlled, policy-enforcing supplier payouts on NEAR testnet"
+version = "1.0.0"
+edition = "2024"
+resolver = "3"
+rust-version = "1.93"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Same pins as the M0 spike (spikes/poc-b-treasury), so the build resolves from the local cargo cache with
+# --offline. No new crates.
+[dependencies]
+near-sdk = "5.29"
+
+[dev-dependencies]
+near-sdk = { version = "5.29", features = ["unit-testing"] }
+# No sandbox integration crates: near-sandbox has no Windows build. On-chain behaviour is verified on
+# testnet by owner-run scripts in later, separately approved batches (M5 plan §21).
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(near)']

@@ -11,7 +11,9 @@ import { checkRunEligibility } from "./eligibility";
 import { runRead, type RunTx } from "./repo";
 import { expectedFor } from "./runner";
 import { SCENARIO_DEFS } from "./scenarios";
-import { ACTIVE_RUN_STATUSES, SCENARIOS, type RunRecord } from "./types";
+import { nearText } from "./agents";
+import { EXPLORER_TX_URL } from "./payment-executor";
+import { ACTIVE_RUN_STATUSES, SCENARIOS, ledgerNgn, type AttemptStatus, type PaymentAttempt, type RunRecord } from "./types";
 import type { AddressedItem, RunSummary, RunView, RunsView } from "./view-types";
 
 const reasonList = (codes: string[]) => codes.map(code => ({ code, text: REASON_TEXT[code] ?? code }));
@@ -55,7 +57,8 @@ export async function buildRunsView(b: BusinessRecord): Promise<RunsView> {
     const elig = current
       ? checkRunEligibility({ business, agents, workflows, runs, workflowId: current.id })
       : { code: "WORKFLOW_NOT_APPROVED", status: 409 as const, message: "Approve a workflow on the Workflows tab first." };
-    const spent = tx.ledger(b.id).filter(l => l.occurred_at.slice(0, 10) === new Date().toISOString().slice(0, 10)).reduce((t, l) => t + l.amount, 0);
+    const spent = tx.ledger(b.id).filter(l => l.occurred_at.slice(0, 10) === new Date().toISOString().slice(0, 10)).reduce((t, l) => t + ledgerNgn(l), 0);
+    const batch = tx.armedBatch(b.id);
     return {
       businessId: business.id, businessName: business.name, runnable,
       killSwitch: !!business.kill_switch, killSwitchChangedAt: business.kill_switch_changed_at ?? null,
@@ -68,6 +71,10 @@ export async function buildRunsView(b: BusinessRecord): Promise<RunsView> {
       activeRunId: runs.find(r => ACTIVE_RUN_STATUSES.includes(r.status))?.id ?? null,
       runs: runs.slice(0, 20).map(summaryOf),
       demoLabel: restaurantDemoScenario().label,
+      testnet: {
+        batch: batch ? { ref: batch.batch_ref, maxPayments: batch.max_payments, paymentsUsed: batch.payments_used, maxTotalNear: nearText(batch.max_total_yocto), usedNear: nearText(batch.yocto_used), expiresAt: batch.expires_at } : null,
+        recipients: restaurantDemoScenario().suppliers.filter(s => s.approved && s.testnet_account).map(s => ({ supplier: s.name, account: s.testnet_account! })),
+      },
     };
   });
 }
@@ -93,7 +100,7 @@ function runViewFrom(tx: RunTx, businessId: string, runId: string): RunView | nu
   const procurementReason = steps.find(s => s.step_id === "supplier_choice" && s.status === "succeeded")?.reasoning ?? null;
   return {
     run: {
-      ...summaryOf(run), mode: "test_run", cursor: run.cursor, stepsDone: run.steps_done, execMs: run.exec_ms, pauseReason: run.pause_reason, control: run.control,
+      ...summaryOf(run), mode: run.mode, batchRef: run.batch_id ? tx.batches(businessId).find(x => x.id === run.batch_id)?.batch_ref ?? null : null, cursor: run.cursor, stepsDone: run.steps_done, execMs: run.exec_ms, pauseReason: run.pause_reason, control: run.control,
       summary: run.summary, error: run.error, expected: run.expected,
       actual: { decision: lastDecision, end: run.end_reason },
       interruptedDetected: run.status === "running" && !!openStep && !leaseValid,
@@ -112,13 +119,44 @@ function runViewFrom(tx: RunTx, businessId: string, runId: string): RunView | nu
     decisions: decisions.map(d => ({ id: d.id, decision: d.decision, reasons: reasonList(d.reason_codes), createdAt: d.created_at, signals: d.signals })),
     approval: approval ? {
       id: approval.id, status: approval.status, autoApproved: approval.auto_approved, amountNgn: approval.amount_ngn, beneficiary: approval.beneficiary,
-      channel: "Treasury contract (test run)", reasons: reasonList(approval.reason_codes), expiresAt: approval.expires_at, decidedAt: approval.decided_at, decidedBy: approval.decided_by,
+      channel: approval.mode === "testnet" ? "Treasury contract · NEAR testnet (real transaction)" : "Treasury contract (test run)", reasons: reasonList(approval.reason_codes), expiresAt: approval.expires_at, decidedAt: approval.decided_at, decidedBy: approval.decided_by,
       expiredNotPersisted: approval.status === "pending" && approval.expires_at <= now,
       thresholdNgn: doc?.params.approval_threshold_ngn ?? 0, maxPaymentNgn: doc?.params.max_payment_ngn ?? 0,
       rationale: proposal ? procurementReason : null,
+      testnet: approval.mode === "testnet" && approval.binding ? {
+        recipientAccount: approval.binding.recipient_account_id, amountNear: nearText(approval.binding.amount_yocto), amountYocto: approval.binding.amount_yocto,
+        contract: approval.binding.contract_id, agent: approval.binding.agent_account_id,
+        batchRef: tx.batches(businessId).find(x => x.id === approval.binding!.batch_id)?.batch_ref ?? approval.binding.batch_id,
+      } : null,
     } : null,
-    ledger: ledger.map(l => ({ id: l.id, amount: l.amount, counterparty: l.counterparty, label: l.label, txHash: l.tx_hash, occurredAt: l.occurred_at })),
+    ledger: ledger.map(l => l.mode === "testnet"
+      ? { id: l.id, mode: l.mode, amountText: `${nearText(l.amount)} NEAR`, counterparty: l.counterparty, supplier: l.supplier_name, label: l.label, txHash: l.tx_hash, explorerUrl: l.explorer_url, status: l.tx_status, occurredAt: l.occurred_at }
+      : { id: l.id, mode: l.mode, amountText: `₦${l.amount.toLocaleString("en-NG")}`, counterparty: l.counterparty, supplier: null, label: l.label, txHash: null, explorerUrl: null, status: l.tx_status, occurredAt: l.occurred_at }),
+    payment: attemptView(tx.attempts(businessId).filter(x => x.run_id === runId).at(-1) ?? null),
     events: events.map(e => ({ id: e.id, actor: e.actor, type: e.type, subject: e.subject, status: e.status, createdAt: e.created_at })),
     more: run.status === "running" && run.cursor !== null && !openStep,
+  };
+}
+
+const ATTEMPT_TEXT: Record<AttemptStatus, string> = {
+  prepared: "Approved · about to be checked and signed",
+  signing: "Checking the chain and signing",
+  signed: "Signed and saved · about to be sent",
+  submitting: "Sent · waiting for the final outcome",
+  unknown: "Outcome not known yet · reconciling from the contract (never re-sent as a new payment)",
+  confirmed: "Paid · verified on NEAR testnet",
+  failed_onchain: "Failed on-chain · nothing was paid",
+  aborted: "Not sent",
+  expired_unexecuted: "Not sent · the signed transaction expired without executing",
+};
+
+/** The attempt as the owner sees it. Never includes the signed bytes or anything secret. */
+function attemptView(a: PaymentAttempt | null) {
+  if (!a) return null;
+  const lastCheck = a.checks.at(-1) ?? null;
+  return {
+    id: a.id, status: a.status, statusText: ATTEMPT_TEXT[a.status], recipient: a.recipient, amountNear: nearText(a.amount_yocto), amountNgn: a.amount_ngn,
+    txHash: a.tx_hash, explorerUrl: a.tx_hash && a.status !== "aborted" ? `${EXPLORER_TX_URL}${a.tx_hash}` : null, nonce: a.nonce,
+    signedBlockHeight: a.signed_block_height, expiresAfterHeight: a.expires_after_height, broadcasts: a.broadcasts, verifiedAt: a.verified_at, error: a.error, lastCheck,
   };
 }

@@ -144,7 +144,7 @@ Diagram 4 and [05-threat-model.md](05-threat-model.md). In short: `evaluate(acti
 
 ### NEAR (step 8)
 
-Diagram 5. **One contract** (`treasury`), **one signing key at run time** (the Finance Agent's function-call key), and about 9 testnet accounts. The owner's full-access keys stay in the owner's NEAR CLI keychain and are used only by setup and owner scripts.
+Diagram 5. **One contract** (`treasury`), **one signing key at run time** (the Finance Agent's function-call key), and about 9 testnet accounts (5 in M5). **M5 has no server-held pause key** (R8): on-chain `pause` is an owner-run CLI emergency step. The owner's full-access keys stay in the owner's NEAR CLI keychain and are used only by setup and owner scripts.
 
 ### AI provider (NEAR AI Cloud for the product; offline mode for development)
 
@@ -246,9 +246,9 @@ stateDiagram-v2
 flowchart TD
   A[Agent proposes action<br/>tool, contract, recipient, amount, purpose, provenance] --> K{Kill switch on<br/>or agent paused?}
   K -->|"yes"| BLK[BLOCK]
-  K -->|"no"| H{Hard rules<br/>tool outside scope · unknown account ·<br/>confirmed blocklist · over per-tx or daily cap ·<br/>duplicate request · no valid policy}
+  K -->|"no"| H{Hard rules<br/>tool outside scope · unknown account ·<br/>recipient not on the on-chain allowlist ·<br/>confirmed blocklist · over per-tx or daily cap ·<br/>duplicate request · no valid policy}
   H -->|"any match"| BLK
-  H -->|"none"| S{Soft rules<br/>not an approved recipient · first interaction ·<br/>new or age unknown · code changed ·<br/>unreviewed report · above approval threshold ·<br/>untrusted instruction source}
+  H -->|"none"| S{Soft rules<br/>first interaction ·<br/>new or age unknown · code changed ·<br/>unreviewed report · above approval threshold ·<br/>untrusted instruction source}
   S -->|"any match"| WARN[WARN: approval request]
   S -->|"none"| ALLOW[ALLOW]
   BLK --> LOG[(security_decisions, append-only)]
@@ -264,6 +264,11 @@ flowchart TD
   TR -->|"panic"| FAIL[Failed tx shown with its real status]
   BLK --> NOSIGN
 ```
+
+> **M5 (proposed, [M5 plan](m5-proposal.md)):**
+> - **Recipients:** a recipient that isn't on the treasury contract's on-chain allowlist is a **hard BLOCK**. No app approval bypasses it, and the contract rejects it regardless (owner correction, 2026-11-08). Adding a recipient is a separate owner-signed `approve_recipient` transaction, followed by verification.
+> - **Approval:** in M5 **every real payment goes to the owner for approval, ALLOW included** (R5). The ALLOW → signer arrow applies only if automatic execution is approved later.
+> - **Amounts:** limits are checked twice, in NGN business amounts and in NEAR transaction amounts, which are never converted (R4).
 
 ---
 
@@ -290,7 +295,9 @@ flowchart TB
   FIN -. "attempted, blocked before signing" .-> BAD
 ```
 
-**Accounts (9):** the parent, `treasury`, `finance-agent`, `contributors`, `customer-demo`, `supplier-1..3`, `scam-supplier`. They're created by `scripts/provision-testnet`, run by the owner with the NEAR CLI (PoC-B). The customer's payment in the demo is signed by the server with the demo customer's key (a labelled simulation of a customer, with real testnet funds). It is the **only** other key the server holds, and it's limited to the customer's small demo balance.
+**M5 provisions 5 of them** (R2): the parent, `treasury`, `finance-agent`, `supplier-1` and `supplier-2`, created and owned by the owner through their NEAR CLI keychain (R3). `scam-supplier` is M6. `contributors` and `customer-demo` come with the deferred customer payments (M6). The customer-key paragraph below is **deferred to M6** (O1): `pay_order` needs a deposit, which a function-call key can't attach, so a server-signed customer would need a full-access key. **No full-access server key or exception to R3 in M5;** custody is decided in M6.
+
+**Accounts (9, full product):** the parent, `treasury`, `finance-agent`, `contributors`, `customer-demo`, `supplier-1..3`, `scam-supplier`. They're created by `scripts/provision-testnet`, run by the owner with the NEAR CLI (PoC-B). The customer's payment in the demo is signed by the server with the demo customer's key (a labelled simulation of a customer, with real testnet funds). It is the **only** other key the server holds, and it's limited to the customer's small demo balance.
 
 **Facts from NEAR docs this relies on (read 2026-11-04):** a function-call key can call one contract, optionally limited to listed methods, and can't attach NEAR, which is why the contract does the transfer. An allowance that runs out makes a key unusable, so the allowance is left unset and the agent account's small balance bounds its gas. The owner keeps a full-access recovery key. Only an account can create its own sub-accounts.
 

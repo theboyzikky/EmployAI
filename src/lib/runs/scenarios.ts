@@ -33,7 +33,8 @@ export const SCENARIO_DEFS: Record<ScenarioKey, ScenarioDef> = {
   price_spike: {
     key: "price_spike", title: "Price spike", description: "Approved suppliers quote far more than usual, so the payment is over your maximum.",
     order: { items: [{ item: "Jollof rice", qty: 10 }] }, changes: "Approved suppliers quote ₦8,500/kg for rice.",
-    adjust: d => { for (const s of d.suppliers) if (s.approved) s.price_per_unit_ngn = 8_500; },
+    // The testnet price list spikes too (0.004 NEAR/kg), so the outcome is BLOCK in both currencies (§8.2).
+    adjust: d => { for (const s of d.suppliers) if (s.approved) { s.price_per_unit_ngn = 8_500; if (s.near_per_unit_yocto) s.near_per_unit_yocto = "4000000000000000000000"; } },
   },
   quiet_day: {
     key: "quiet_day", title: "Quiet day", description: "A small order that leaves every item above its reorder point.",

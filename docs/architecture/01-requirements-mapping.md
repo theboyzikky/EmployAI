@@ -43,6 +43,29 @@ Per the upstream README, the bracketed starter ideas are replaced with EmployAI,
 | X7 | Note: function-call-only accounts can't transfer or add keys, and can lock themselves out when the allowance runs out | Mandatory to address | — | Allowance unset; the owner keeps a full-access recovery key; documented | `README.md` | Reviewed | README |
 | X8 | Hints: TEE attestation, OutLayer | Optional | — | Not used, and no TEE claims | — | — | — |
 
+## 2a. Delivery plan for the NEAR-dependent requirements (proposed 2026-11-08; final with the M5 implementation approval)
+
+No requirement above is removed or weakened. This table only records **when** each is delivered, after the [M5 decision review](m5-decision-review.md).
+
+| # | Requirement | Milestone | M5 form, or why it moved |
+|---|---|---|---|
+| B1 | Agent's own NEAR account | **M5** | `finance-agent.employai-demo.testnet`, registered in the treasury; every payout event names it |
+| B2, X4 | Function-call key only; README key limits | **M5** | Receiver `treasury`, method `request_payment`, allowance unset. Checked on-chain by owner-run negative tests and at run time by the app (refuses any broader key). The server holds no full-access, owner or recovery key (R3). |
+| B4 | Minimum order value on-chain | **M6** (deferred, R9) | `pay_order` is in the M5 contract, **disabled** (`sales_enabled = false`), and unit-tested for the minimum and pause; enabled with customer payments |
+| B5, B12 | Revenue split | **M6** (deferred, R9) | As above |
+| B6 | Kill switch at any time | **M5** | In-app switch (refuses runs, approvals and signing before broadcast) **plus an owner-controlled CLI emergency procedure** (on-chain `pause`, agent-key revocation). No server-held pause key (R8). |
+| B7 | Public ledger | **M7** (deferred, R10) | M5 delivers the **private owner ledger** with verified explorer links |
+| B8 | Sale-to-payout loop under 2 minutes | **M6** (deferred, R9) | Needs customer payments. M5 measures only approval-to-payout time and makes no sale-to-payout claim. |
+| X1, X3 | Gate before funds move; refuse on BLOCK, ask a human on WARN | **M5** | **Stricter in M5: the owner approves every real payment, ALLOW included (R5).** BLOCK always prevents payment. |
+| X2a | Account age and activity | **M6** (R11) | NearBlocks; not called in M5 |
+| X2b | Contract or code identity | **M5** (R11) | Public RPC `view_account` (existence and `code_hash`) before signing |
+| X2c | Prior interactions | **M5** | Only **confirmed on-chain payouts** count (R7) |
+| X2d, X5 | Shared blocklist; attack demo | **M6** | Unchanged |
+| PRD AT-08 | "Security returns ALLOW; contract validates and executes authorised testnet payout" | **M5** | Confirmed (O5, owner, 2026-11-08): a **security-authorised and explicitly owner-approved** testnet payout. The PRD text is unchanged. |
+| — | Recipient allowlist | **M5** | **An app approval never bypasses the on-chain allowlist;** adding a recipient is a separate owner on-chain operation followed by verification (owner correction, 2026-11-08). **An unapproved recipient is BLOCKed in both test and real runs** (O4; the change to M4's gate waits for checkpoint CP-1). |
+| — | Exact approval binding | **M5** | Each real payment needs its own owner approval, bound to the request ID, recipient, both amounts, workflow and approval fingerprint, and both policy versions. Any change invalidates it. Batch arming never replaces approval (V1). |
+| — | Customer-payment key custody | **M6** | Decided in M6 (O1). **No full-access server key or exception to R3 in M5.** |
+
 ## 3. AI Swarms (`swarms`): **removed as a target** (owner decision, 2026-11-05)
 
 Not implemented and not selected in the submission. Nothing from its mandatory list is built:

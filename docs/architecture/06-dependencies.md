@@ -29,7 +29,9 @@ Status: **Revised 2026-11-05 to match [00-mvp-scope.md](00-mvp-scope.md).** Vers
 | GitHub, X, mainnet NEAR wallet (prize payout) | Submission | Owner | Gate 6 |
 | ~~OutLayer, NEAR Intents/1Click, Agent API, PingPay~~ | — | — | **Not used.** Intents and the Intents-based services are mainnet-only. OutLayer isn't needed with a function-call key. |
 
-**Testnet accounts (9), created by the owner-run `scripts/provision-testnet`:** `employai-demo.testnet` (parent, currently free), plus `treasury.`, `finance-agent.`, `contributors.`, `customer-demo.`, `supplier-1.`, `supplier-2.`, `supplier-3.`, `scam-supplier.` (labelled fixture).
+**M5 (proposed, R2, R3): 5 accounts**, created, funded (faucet) and owned by the owner through their own NEAR CLI keychain, each step in an owner-approved written batch: the parent, `treasury.`, `finance-agent.`, `supplier-1.`, `supplier-2.`. The rest come later (`scam-supplier` M6; `contributors`, `customer-demo` with customer payments, M6).
+
+**Testnet accounts (9, full product), created by the owner-run `scripts/provision-testnet`:** `employai-demo.testnet` (parent, currently free), plus `treasury.`, `finance-agent.`, `contributors.`, `customer-demo.`, `supplier-1.`, `supplier-2.`, `supplier-3.`, `scam-supplier.` (labelled fixture).
 
 ## npm packages
 
@@ -45,7 +47,7 @@ Status: **Revised 2026-11-05 to match [00-mvp-scope.md](00-mvp-scope.md).** Vers
 | `zod` | 4.6.7 | All schemas (profile, agent, workflow, policy, action) |
 | `@supabase/supabase-js`, `@supabase/ssr` | 2.118.0, 0.12.7 | DB and auth |
 | `openai` | 7.50.0 | **Installed (M2).** NEAR AI Cloud client (OpenAI-compatible), `maxRetries: 0` |
-| `near-api-js` | 7.4.0 | RPC, function-call key signing, contract calls (the official SDK, covered by the installed `near-api-js` skill) |
+| `near-api-js` | 7.4.0 (2026-11-04; re-checked at install) | RPC, function-call key signing, contract calls (the official SDK, covered by the installed `near-api-js` skill). **M5 (proposed, R1):** one exact pinned version, imported **only** by `src/lib/chain/` (static test). **Not installed yet**; the version is shown for the owner's OK in M5 Phase 3. |
 | `yaml` | 2.9.1 | Reads `config.yaml` |
 | `vitest` | 5.1.0 | **Installed (M2, dev).** Unit and route tests (`npm test`). Its peer range required `@types/node` ^22 (the template had ^20); dev-only types, Node 26 runtime unchanged. |
 | `@playwright/test` | 1.64.1 | One end-to-end happy path plus a mobile check |
@@ -83,10 +85,10 @@ These are proposed changes to `.env.example`. I'll apply them in M1 once you app
 | `OLLAMA_BASE_URL` (`http://localhost:11434/v1`), `OLLAMA_MODEL` | server | **add** (optional) |
 | `NEAR_NETWORK=testnet`, `NEAR_RPC_URL` | server | keep; default `https://test.rpc.fastnear.com` |
 | `NEAR_PARENT_ACCOUNT_ID`, `NEAR_TREASURY_CONTRACT_ID` | server | keep |
-| `NEAR_FINANCE_AGENT_ACCOUNT_ID` | server | **add** |
-| `NEAR_FINANCE_AGENT_PRIVATE_KEY` | server (secret) | **add**, replacing `NEAR_SIGNER_SECRET`. A function-call key only. |
-| `NEAR_DEMO_CUSTOMER_ACCOUNT_ID`, `NEAR_DEMO_CUSTOMER_PRIVATE_KEY` | server (secret) | **add** (D-20) |
-| `NEAR_SIGNER_SECRET` | — | **remove** |
+| `NEAR_FINANCE_AGENT_ACCOUNT_ID` | server | **add** (M5, R15: placeholder in `.env.example`; the owner sets `.env`) |
+| `NEAR_FINANCE_AGENT_PRIVATE_KEY` | server (secret) | **add**, replacing `NEAR_SIGNER_SECRET`. A function-call key only (`treasury.request_payment`); the app refuses any broader key. **Never a full-access, owner or recovery key** (R3). Empty placeholder in `.env.example`; only the owner writes `.env`. |
+| `NEAR_DEMO_CUSTOMER_ACCOUNT_ID`, `NEAR_DEMO_CUSTOMER_PRIVATE_KEY` | server (secret) | **Not in M5** (customer payments deferred, R9). On hold: `pay_order` needs a deposit, so this would be a full-access key, which R3 forbids. **Custody deferred to M6 (O1); no full-access server key or exception to R3 in M5.** |
+| `NEAR_SIGNER_SECRET`, `OUTLAYER_API_KEY`, `OUTLAYER_BASE_URL` | — | **remove** from `.env.example` in M5 Phase 3 (R15). Still present today. |
 | `NEARBLOCKS_API_BASE` (`https://api-testnet.nearblocks.io`) | server | **add** |
 | `OUTLAYER_API_KEY`, `OUTLAYER_BASE_URL`, `APP_ENCRYPTION_KEY` | — | **remove** (not used) |
 | `DEMO_MODE` | server | **add** (shows demo controls and labels) |

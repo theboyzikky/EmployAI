@@ -59,7 +59,9 @@ describe("§11.1 · store additions rewrite nothing", () => {
       expect(await store.listAgents(id)).toEqual(original.agents[id] ?? []);
       expect(await store.listWorkflows(id)).toEqual((original.workflows ?? {})[id] ?? []);
     }
-    expect(await runRead(tx => Object.keys(original.businesses).map(id => tx.runs(id).length).reduce((a, b) => a + b, 0))).toBe(0);
+    // Runs read back exactly as stored (the real store may already contain runs from local use).
+    const storedRuns = Object.keys(original.businesses).map(id => ((original.runs ?? {})[id] ?? []).length).reduce((a: number, b: number) => a + b, 0);
+    expect(await runRead(tx => Object.keys(original.businesses).map(id => tx.runs(id).length).reduce((a, b) => a + b, 0))).toBe(storedRuns);
     expect(sha(file)).toBe(before);
   });
 });

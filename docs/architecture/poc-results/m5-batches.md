@@ -438,3 +438,32 @@ On-chain `get_spent_today`: 0.031 of 0.25 NEAR. Batch B3 used: 1 of 1 payments, 
 - `ed25519:8qgG…`: **gone**. Verified between E and E2: only the recovery key remained.
 
 **App change:** `APPROVED_ACCOUNTS.agentPublicKey` now pins the new key; the exposed key is refused (a static test forbids it). The new secret lives only in the legacy keychain file named for its public key and in the owner's `.env`. Transaction hashes for E and E2 are in the owner's CLI output (public, not yet copied here). The treasury, its policy and allowlist, and the contract were not touched.
+
+## S2 (first attempt) · approval expired unused (2026-11-09)
+
+Prepared through the app with the rotated key: run `9c970639…`, batch **B3-S2** (1 payment, max 0.031 NEAR, 60 min). Security check **ALLOW**, no reasons (supplier-1 paid before in B3; 0.031 NEAR under the 0.05 NEAR WARN level). The chain checks passed at 21:12:13 UTC (on-chain spent 0.031 of 0.25 NEAR). The owner approval stayed pending and **expired at 21:27:13 UTC**; the run then ended `rejected`. No payment attempt was created and nothing was signed. A fresh S2 approval request is prepared separately when the owner is ready.
+
+## S5 · Kill switch demonstration (live app, 2026-11-09; **PASS**, no payment)
+
+Run `dc509ee0-4cea-4ecb-9342-a5c4cfa58dbc` on the dev server, NEAR testnet mode, batch B3-S2:
+
+| Step | Result |
+|---|---|
+| Before | Security check ALLOW (real chain checks); approval **pending** for 0.031 NEAR to `supplier-1.employai-demo.testnet`; no payment attempt |
+| Kill switch ON (`POST /kill-switch`) | finalised at once: run **cancelled** (`KILL_SWITCH_ACTIVE`), approval **invalidated**, batch B3-S2 **disarmed**; events `approval.invalidated`, `run.cancelled` |
+| Try to approve the payment | 409 `APPROVAL_INVALIDATED` |
+| Try to advance the run | no-op (advanced 0; still cancelled) |
+| Try to start a new testnet run | 409 `KILL_SWITCH_ACTIVE` |
+| Try to arm a batch | 409 `KILL_SWITCH_ACTIVE` |
+| Ledger | unchanged: 1 verified payment (B3), 0 in progress |
+| Kill switch OFF | done after the evidence was read |
+
+**On-chain proof (read-only, before → after):** restricted key `3WYMJ…` nonce **276,971,889,000,000 → 276,971,889,000,000** (no transaction signed with it); `get_request("dc509ee0…:payment")` = `null`; `get_spent_today` 0 → 0; supplier-1 0.131 → 0.131 NEAR; finance-agent balance unchanged.
+
+The later kill-switch points (after approval, after signing, after broadcast) are covered by the automated fake-chain tests in `tests/testnet-payments.test.ts`. They weren't run live, because that would need an approved real payment.
+
+## B3 explorer link · verified (2026-11-09)
+
+- `https://testnet.near.rocks/tx/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP` (NEAR Rocks, by FastNear) shows the B3 transaction: signer `finance-agent.employai-demo.testnet`, key `8qgG…`, nonce 276931238000004, `request_payment` with the B3 request ID, the 0.031 NEAR transfer to supplier-1, `on_payout` returning `true`, and the `payout_requested` and `payout_completed` events.
+- The official NEAR explorer selector (`explorer.testnet.near.org/transactions/<hash>`) links to `https://testnet.nearblocks.io/txns/<hash>`, the format the app used. NearBlocks serves a Cloudflare bot check (HTTP 403) to automated browsers, so it wasn't opened here, and no attempt was made to get past it.
+- The app now links to NEAR Rocks first and NearBlocks second.

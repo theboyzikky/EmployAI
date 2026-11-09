@@ -9,7 +9,7 @@ import type { AgentKeyHandle } from "@/lib/chain/keys";
 import { createPaymentChain, nearPolicyVersionOf } from "@/lib/chain/live";
 import type { ExecutionOutcome, PaymentRequestRecord, TxStatusResult } from "@/lib/chain/types";
 import { getPaymentChain, setPaymentChainForTests } from "@/lib/runs/payment-port";
-import { AGENT, AGENT_FC_KEY, CONFIG, OWNER, S1, T, fakeChain } from "./helpers/fake-chain";
+import { AGENT, AGENT_FC_KEY, CONFIG, OWNER, REVOKED_FC_KEY, S1, T, fakeChain } from "./helpers/fake-chain";
 
 const AMOUNT = "31000000000000000000000";
 const REQ = "run-0001:payment";
@@ -112,6 +112,9 @@ describe("live adapter · precheck", () => {
     expect(paused.failures.map(f => f.code)).toContain("TREASURY_PAUSED");
     const other = await createPaymentChain({ chain: fakeChain().reader, rpc: { sendTx: vi.fn() }, config: CONFIG, agentKey: { ...handle, publicKey: "ed25519:other" } }).precheck({ recipient: S1, amountYocto: AMOUNT });
     expect(other.failures.map(f => f.code)).toContain("SIGNER_KEY_UNSAFE");
+    // the exposed B1 key (revoked in batch E) is refused even if a node still reported it as valid
+    const revoked = await createPaymentChain({ chain: fakeChain().reader, rpc: { sendTx: vi.fn() }, config: CONFIG, agentKey: { ...handle, publicKey: REVOKED_FC_KEY } }).precheck({ recipient: S1, amountYocto: AMOUNT });
+    expect(revoked.failures.map(f => f.code)).toContain("SIGNER_KEY_UNSAFE");
   });
 
   it("a changed on-chain policy changes its version (which invalidates approvals before signing)", () => {

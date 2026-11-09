@@ -88,7 +88,8 @@ describe("chain layer static guards", () => {
   it("the approved values are pinned in config.ts", () => {
     const c = read("src/lib/chain/config.ts");
     expect(c).toContain('"HvewFdJa6y2jaJxWn5oU4VckoUDhXo61fKyvd9VFBDJt"');
-    expect(c).toContain('agentPublicKey: "ed25519:8qgGrnTtmKw8excey4uPcBdYL9hdsjnv1FzQECjGNFMZ"');
+    expect(c).toContain('agentPublicKey: "ed25519:3WYMJJAsybvTPJHDgeys77PMHARoKKYyFd2iVDBfuRGx"');
+    expect(c).not.toMatch(/agentPublicKey: "ed25519:8qgG/);           // the exposed B1 key is never approved again
     expect(c).toContain('treasury: "treasury.employai-demo.testnet"');
     expect(c).toContain('agent: "finance-agent.employai-demo.testnet"');
     expect(c).toContain('owner: "employai-demo.testnet"');

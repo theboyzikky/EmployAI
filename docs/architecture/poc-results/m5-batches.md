@@ -422,3 +422,19 @@ The first supplier payment initiated through EmployAI: the real execution runner
 On-chain `get_spent_today`: 0.031 of 0.25 NEAR. Batch B3 used: 1 of 1 payments, 0.031 of 0.1 NEAR.
 
 **Explorer link** (format still unverified, B0-7): `https://testnet.nearblocks.io/txns/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP`.
+
+## E and E2 · Finance Agent key rotation (owner-run 2026-11-09; **PASS**, verified read-only)
+
+**Why:** the restricted key's secret (public key `ed25519:8qgGrnTtmKw8excey4uPcBdYL9hdsjnv1FzQECjGNFMZ`) was pasted into a chat transcript, so it was treated as exposed. The NEAR AI API key in the same paste must also be rotated by the owner at cloud.near.ai (not an on-chain action).
+
+| Batch | Action | Signed with | Authority |
+|---|---|---|---|
+| **E** | `emergency.sh revoke-agent-key --execute`: deleted the exposed restricted key | finance-agent's full-access recovery key (owner keychain) | Pre-authorised emergency procedure (O3) |
+| **E2** | `near account add-key … grant-function-call-access --allowance unlimited --contract-account-id treasury.employai-demo.testnet --function-names request_payment` | finance-agent's recovery key | Written sheet in chat; the owner ran it |
+
+**Verified read-only after E2** (`view_access_key_list` on `finance-agent.employai-demo.testnet`, final):
+- `ed25519:3WYMJJAsybvTPJHDgeys77PMHARoKKYyFd2iVDBfuRGx`: `FunctionCall { receiver_id: treasury.employai-demo.testnet, method_names: ["request_payment"], allowance: null }`, nonce 276,971,889,000,000 (added around block 276,971,889).
+- `ed25519:78rzENLHufiG5xYkCrByeaRhYtCBMU3nB3vcBNT4Gdz8`: FullAccess recovery key, unchanged.
+- `ed25519:8qgG…`: **gone**. Verified between E and E2: only the recovery key remained.
+
+**App change:** `APPROVED_ACCOUNTS.agentPublicKey` now pins the new key; the exposed key is refused (a static test forbids it). The new secret lives only in the legacy keychain file named for its public key and in the owner's `.env`. Transaction hashes for E and E2 are in the owner's CLI output (public, not yet copied here). The treasury, its policy and allowlist, and the contract were not touched.

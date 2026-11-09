@@ -10,7 +10,10 @@ export const OWNER = "employai-demo.testnet";
 export const AGENT = "finance-agent.employai-demo.testnet";
 export const S1 = "supplier-1.employai-demo.testnet";
 export const S2 = "supplier-2.employai-demo.testnet";
-export const AGENT_FC_KEY = "ed25519:8qgGrnTtmKw8excey4uPcBdYL9hdsjnv1FzQECjGNFMZ";
+/** The current restricted key (E2). The B2 fixtures were recorded with the revoked B1 key; same permission shape. */
+export const AGENT_FC_KEY = "ed25519:3WYMJJAsybvTPJHDgeys77PMHARoKKYyFd2iVDBfuRGx";
+/** The B1 key, revoked on-chain in batch E after it was exposed. */
+export const REVOKED_FC_KEY = "ed25519:8qgGrnTtmKw8excey4uPcBdYL9hdsjnv1FzQECjGNFMZ";
 export const CONFIG = { network: "testnet" as const, rpcUrl: "https://archival-rpc.testnet.fastnear.com", owner: OWNER, treasury: T, agent: AGENT };
 
 export const fixture = <X>(name: string): X => JSON.parse(readFileSync(path.join(process.cwd(), "tests/fixtures/near", name), "utf8")) as X;

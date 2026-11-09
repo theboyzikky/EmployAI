@@ -18,8 +18,11 @@ export const APPROVED_ACCOUNTS = {
   owner: "employai-demo.testnet",
   treasury: "treasury.employai-demo.testnet",
   agent: "finance-agent.employai-demo.testnet",
-  /** The restricted FunctionCall key added in B1 (verified in B2). The only key the app may sign with. */
-  agentPublicKey: "ed25519:8qgGrnTtmKw8excey4uPcBdYL9hdsjnv1FzQECjGNFMZ",
+  /**
+   * The restricted FunctionCall key: the only key the app may sign with. Rotated 2026-11-09 (batches E
+   * and E2) after the B1 key ed25519:8qgG… was exposed; that key is revoked on-chain and refused here.
+   */
+  agentPublicKey: "ed25519:3WYMJJAsybvTPJHDgeys77PMHARoKKYyFd2iVDBfuRGx",
 } as const;
 /** Prepaid gas for request_payment: 100 Tgas (worst case ≈ 0.01 NEAR at B0's gas price; unused gas is refunded). */
 export const REQUEST_PAYMENT_GAS = BigInt("100000000000000");

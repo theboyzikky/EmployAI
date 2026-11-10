@@ -49,8 +49,10 @@ export type GateContext = {
   policy: GatePolicy | null;
   /** Fictional demo supplier registry (D5). `priorPayments` is its fictional history only (D7). */
   registry: ReadonlyArray<{ name: string; approved: boolean; priorPayments: number; account?: string }>;
-  /** Shared blocklist arrives in M6; empty in M4. */
+  /** M6 shared blocklist: CONFIRMED names or account IDs (hard BLOCK). */
   blocklist: readonly string[];
+  /** M6: REPORTED (unreviewed) account IDs: WARN only, so one report can't block on its own. */
+  reported?: readonly string[];
   /** Simulated test-run payouts recorded today for this business (for the daily limit). */
   spentTodayNgn: number;
   /** request_ids already evaluated for this business. */
@@ -102,13 +104,18 @@ export function evaluate(action: GateAction, ctx: GateContext): GateResult {
   // testnet: the payout account must be the registry's own entry for this supplier (agents never
   // introduce account IDs), and the read-only chain checks are hard rules (R11, plan §9).
   const near = action.kind === "payment_request" ? action.near : undefined;
+  if (near && (!recipient.account || recipient.account !== near.recipientAccount)) return block("RECIPIENT_NOT_FOUND");
+  // 5 · shared blocklist (M6): a CONFIRMED entry for the supplier's name or its account is a hard BLOCK.
+  //     The other findings that apply are listed too, so the log shows everything that was wrong.
+  const ids = [action.beneficiary, recipient.account, near?.recipientAccount].filter((x): x is string => !!x);
+  if (ids.some(id => ctx.blocklist.includes(id))) {
+    return block("RECIPIENT_BLOCKLISTED", ...(!recipient.approved ? ["RECIPIENT_NOT_APPROVED"] : []), ...(action.provenance === "untrusted" ? ["UNTRUSTED_INSTRUCTION_SOURCE"] : []));
+  }
   if (near) {
-    if (!recipient.approved || !recipient.account || recipient.account !== near.recipientAccount) return block("RECIPIENT_NOT_FOUND");
+    if (!recipient.approved) return block("RECIPIENT_NOT_APPROVED");   // a real payout only ever goes to an approved supplier
     if (!DIGITS.test(near.amountYocto)) return block("NOT_AUTHORISED");
     if (ctx.near!.chainFailures.length) return block(ctx.near!.chainFailures[0]);
   }
-  // 5 · blocklist (M6; empty in M4)
-  if (ctx.blocklist.includes(action.beneficiary) || (near && ctx.blocklist.includes(near.recipientAccount))) return block("RECIPIENT_BLOCKLISTED");
   // 6 · limits (both currencies)
   if (action.amountNgn > ctx.policy.maxPaymentNgn) return block("OVER_TX_LIMIT");
   if (near && BigInt(near.amountYocto) > BigInt(ctx.near!.policy!.maxPerTxYocto)) return block("OVER_TX_LIMIT");
@@ -119,6 +126,7 @@ export function evaluate(action: GateAction, ctx: GateContext): GateResult {
   // 8 · WARN reasons, all collected
   const warn: string[] = [];
   if (!recipient.approved) warn.push("RECIPIENT_NOT_APPROVED");
+  if (ids.some(id => (ctx.reported ?? []).includes(id))) warn.push("RECIPIENT_REPORTED");
   // testnet: "paid before" counts only confirmed on-chain payouts to this account (R7)
   const priorPaid = near ? ctx.near!.confirmedPayouts[near.recipientAccount] ?? 0 : recipient.priorPayments;
   if (priorPaid <= 0) warn.push("FIRST_INTERACTION");
@@ -136,7 +144,8 @@ export const REASON_TEXT: Record<string, string> = {
   POLICY_MISSING: "No valid spending policy is set.",
   NOT_AUTHORISED: "This agent isn't allowed to do that here.",
   RECIPIENT_NOT_FOUND: "The recipient isn't in the supplier registry.",
-  RECIPIENT_BLOCKLISTED: "The recipient is on the blocklist.",
+  RECIPIENT_BLOCKLISTED: "The recipient is on the shared blocklist (confirmed, with evidence).",
+  RECIPIENT_REPORTED: "The recipient was reported to the shared blocklist (not yet confirmed).",
   OVER_TX_LIMIT: "The amount is over your maximum payment.",
   OVER_DAILY_LIMIT: "Today's payments would go over the daily limit.",
   DUPLICATE_REQUEST: "This payment request was already made.",

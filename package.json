@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "demo:attack": "vitest run tests/attack-demo.test.ts --reporter=verbose"
   },
   "dependencies": {
     "@phosphor-icons/react": "2.1.10",

@@ -10,6 +10,7 @@ import "server-only";
 // SINGLE-PROCESS ONLY, like the store it wraps.
 import { randomUUID } from "node:crypto";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
+import type { BlocklistReport } from "@/lib/security/blocklist";
 import { discoveryRepository, type AgentRecord, type AgentStatus, type BusinessRecord, type DevState, type WorkflowRecord } from "@/lib/discovery/store";
 import type { ActivityEvent, Actor, ApprovalRecord, ApprovalStatus, LedgerRecord, PaymentAttempt, RunControl, RunRecord, RunStatus, RunStepRecord, SecurityDecisionRecord, TestnetBatch, TestnetLedgerRecord, TestRunLedgerRecord } from "./types";
 
@@ -29,6 +30,13 @@ export class RunTx {
   approvals(businessId: string): ApprovalRecord[] { return copy((this.s.approval_requests ?? {})[businessId] ?? []); }
   ledger(businessId: string): LedgerRecord[] { return copy((this.s.ledger_entries ?? {})[businessId] ?? []); }
   events(businessId: string): ActivityEvent[] { return copy((this.s.activity_events ?? {})[businessId] ?? []); }
+  /** M6: the shared blocklist reports (every workspace sees the same list). */
+  blocklistReports(): BlocklistReport[] { return copy(this.s.blocklist_reports ?? []); }
+  insertBlocklistReport(r: Omit<BlocklistReport, "id" | "created_at">): BlocklistReport {
+    const rec: BlocklistReport = { ...r, id: randomUUID(), created_at: this.now };
+    (this.s.blocklist_reports ??= []).push(rec);
+    return copy(rec);
+  }
   batches(businessId: string): TestnetBatch[] { return copy((this.s.testnet_batches ?? {})[businessId] ?? []); }
   attempts(businessId: string): PaymentAttempt[] { return copy((this.s.payment_attempts ?? {})[businessId] ?? []); }
   attempt(businessId: string, attemptId: string): PaymentAttempt | null { const a = ((this.s.payment_attempts ?? {})[businessId] ?? []).find(x => x.id === attemptId); return a ? copy(a) : null; }

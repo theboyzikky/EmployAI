@@ -9,6 +9,7 @@ import { emptyProfile, type ProfileDoc } from "./profile";
 import { emptyCaseFile } from "./casefile";
 import type { DemoScenario } from "@/lib/workflows/demo-data";
 import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workflows/schema";
+import type { BlocklistReport } from "@/lib/security/blocklist";
 import type { ActivityEvent, ApprovalRecord, LedgerRecord, PaymentAttempt, RunRecord, RunStepRecord, SecurityDecisionRecord, TestnetBatch } from "@/lib/runs/types";
 
 /*
@@ -136,6 +137,8 @@ export type DevState = {
   // testnet transaction; they are never deleted.
   testnet_batches?: Record<string, TestnetBatch[]>;
   payment_attempts?: Record<string, PaymentAttempt[]>;
+  // M6: the SHARED blocklist (one list for every workspace, by design: requirement X2d).
+  blocklist_reports?: BlocklistReport[];
 };
 
 /**

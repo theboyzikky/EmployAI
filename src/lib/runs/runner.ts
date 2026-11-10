@@ -28,6 +28,7 @@ import { abortUnsentAttempts, driveAttempt, driveRunAttempts } from "./payment-e
 import { getPaymentChain, type ChainPrecheck, type PaymentChain } from "./payment-port";
 import { bindingDiff, testnetActionHash } from "@/lib/security/authorisation";
 import type { NearGateContext } from "@/lib/security/gate";
+import { blocklistSets } from "@/lib/security/blocklist";
 import { checkRunEligibility } from "./eligibility";
 import { workflowFingerprint } from "./fingerprint";
 import { runRead, runTransact, type RunTx } from "./repo";
@@ -87,7 +88,8 @@ function gateBase(tx: RunTx, businessId: string, doc: WorkflowDoc, snap: DemoSce
     policy: policyOf(doc, snap),
     // D7: only the fictional registry history counts as "paid before"; test-run outcomes never do.
     registry: snap.suppliers.map(s => ({ name: s.name, approved: s.approved, priorPayments: s.prior_payments ?? 0, account: s.testnet_account })),
-    blocklist: [],
+    // M6: the shared blocklist (confirmed → BLOCK, reported → WARN), demo fixture included.
+    ...((s) => ({ blocklist: s.confirmed, reported: s.reported }))(blocklistSets(tx.blocklistReports(), nowIsoStr)),
     spentTodayNgn: tx.ledger(businessId).filter(l => today(l.occurred_at) === today(nowIsoStr)).reduce((t, l) => t + ledgerNgn(l), 0),
     seenRequestIds: tx.decisions(businessId).map(d => (d.action as { request_id?: string }).request_id ?? "").filter(id => id && id !== excludeRequestId),
   };
@@ -130,6 +132,18 @@ const paidTestnet = (tx: RunTx, businessId: string) => {
   for (const l of tx.ledger(businessId)) if (l.mode === "testnet" && l.tx_status === "confirmed") out[l.counterparty] = (out[l.counterparty] ?? 0) + 1;
   return out;
 };
+
+/**
+ * Where the payment instruction came from, decided by the SYSTEM (never by the agent): only a request
+ * that pays exactly the supplier (and testnet account) Procurement proposed counts as "system". Anything
+ * else (e.g. a payee taken from injected text in a supplier quote) is "untrusted".
+ */
+function provenanceOf(records: Record<string, unknown>, req: PreparedRequest): "system" | "untrusted" {
+  const p = ((records.purchase_proposals ?? []) as Array<{ supplier: string; testnet_account?: string }>)[0];
+  if (!p || req.beneficiary !== p.supplier) return "untrusted";
+  if (req.recipient_account && req.recipient_account !== p.testnet_account) return "untrusted";
+  return "system";
+}
 
 const nearAction = (req: PreparedRequest | undefined) => (req?.recipient_account && req.amount_yocto ? { recipientAccount: req.recipient_account, amountYocto: req.amount_yocto } : undefined);
 
@@ -593,7 +607,7 @@ function commitStep(tx: RunTx, a: CommitArgs): StepOutcome {
       const finance = agentFor(tx.agents(businessId), "finance");
       const pre = testnet && a.env.precheck?.requestKey === requestKey(req) ? a.env.precheck.data : null;
       const result = evaluate(
-        { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: "system", near },
+        { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: provenanceOf(rec2, req), near },
         // A retry re-evaluates the SAME request: its own earlier decision isn't a duplicate (the contract and
         // the signer still allow at most one success per request_id).
         { ...gateBase(tx, businessId, doc, snap, a.nowIsoStr, run.payment_retry ? req.request_id : undefined), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"],
@@ -808,7 +822,7 @@ function commitTestnetPayment(tx: RunTx, a: CommitArgs, run: RunRecord, finishSt
   if (!decision) return fail("NO_DECISION", "No security decision to act on.", "failed");
   const finance = agentFor(tx.agents(businessId), "finance");
   const recheck = evaluate(
-    { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: "system", near },
+    { kind: "payment_request", agentKey: "finance", tool: "request_payment", stepId: "payment", requestId: req.request_id, beneficiary: req.beneficiary, amountNgn: req.amount_ngn, channel: req.channel, provenance: provenanceOf(rec2, req), near },
     { ...gateBase(tx, businessId, doc, snap, a.nowIsoStr, req.request_id), agent: finance ? { status: finance.status, allowedTools: finance.definition.allowed_tools } : null, stepTools: ["request_payment"],
       near: nearContext(tx, businessId, snap, precheckFromSignals(decision.signals), a.nowIsoStr) },
   );

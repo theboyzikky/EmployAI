@@ -27,8 +27,8 @@ export function HowItWorks() {
           intro="No workflow builders, no code. You explain the business; EmployAI does the design work and asks for your approval at every step that matters."
         />
         <ol className="relative mt-14 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-          {/* The journey line: visible only in the gaps between cards, through the step badges. */}
-          <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-[44px] hidden border-t border-dashed border-accent-line lg:block" />
+          {/* The journey line: visible only in the gaps between cards, level with the step icons. */}
+          <span aria-hidden="true" style={{ top: 48 }} className="pointer-events-none absolute inset-x-0 hidden border-t border-dashed border-accent-line lg:block" />
           {STEPS.map((s, i) => {
             const last = i === STEPS.length - 1;
             return (
@@ -36,13 +36,10 @@ export function HowItWorks() {
                 className="card relative flex flex-col overflow-hidden p-6 [background-image:linear-gradient(180deg,var(--color-accent-soft)_0%,transparent_38%)]">
                 {/* Large step numeral, as a quiet watermark. */}
                 <span aria-hidden="true" className="pointer-events-none absolute -right-2 -top-6 select-none text-[6.5rem] font-bold leading-none tracking-[-0.06em] text-accent opacity-[0.09]">0{i + 1}</span>
-                <div className="relative flex items-center gap-3">
-                  <span aria-hidden="true" className={cx(
-                    "inline-flex h-10 w-10 flex-none items-center justify-center rounded-full text-sm font-semibold",
-                    last ? "bg-accent-solid text-on-accent shadow-[0_0_0_6px_var(--color-accent-soft)]" : "bg-surface text-accent ring-1 ring-accent-line shadow-[0_0_0_6px_var(--color-surface)]",
-                  )}>{i + 1}</span>
-                  <span className="icon-tile h-10 w-10 rounded-xl"><Icon icon={s.icon} size={20} swap={false} /></span>
-                </div>
+                <span aria-hidden="true" className={cx(
+                  "relative inline-flex h-12 w-12 flex-none items-center justify-center rounded-2xl",
+                  last ? "bg-accent-solid text-on-accent shadow-[0_0_0_6px_var(--color-accent-soft)]" : "bg-accent-soft text-ink ring-1 ring-accent-line",
+                )}><Icon icon={s.icon} size={24} swap={false} /></span>
                 <h3 className="relative mt-6 text-lg font-semibold leading-snug text-ink">
                   <span className="sr-only">Step {i + 1}: </span>{s.title}
                 </h3>

@@ -19,6 +19,7 @@ export function limits(env: Record<string, string | undefined> = process.env) {
     aiPerWorkspace: { name: "ai-ws", max: num(env.EMPLOYAI_LIMIT_AI_PER_WORKSPACE_DAY, 80), windowMs: DAY, message: "This workspace has used today's AI consultant allowance. It resets tomorrow (UTC)." },
     aiPerIp: { name: "ai-ip", max: num(env.EMPLOYAI_LIMIT_AI_PER_IP_DAY, 300), windowMs: DAY, message: "This network has used today's AI consultant allowance. It resets tomorrow (UTC)." },
     testnetPerWorkspace: { name: "tn-ws", max: num(env.EMPLOYAI_LIMIT_TESTNET_RUNS_PER_WORKSPACE_DAY, 4), windowMs: DAY, message: "This workspace has started today's maximum of real testnet runs. Simulated test runs are still available." },
+    hookPerConnection: { name: "hook-conn", max: num(env.EMPLOYAI_LIMIT_HOOK_PER_CONNECTION_MIN, 120), windowMs: MIN, message: "Too many events for this connection; please retry shortly." },
     testnetPerIp: { name: "tn-ip", max: num(env.EMPLOYAI_LIMIT_TESTNET_RUNS_PER_IP_DAY, 8), windowMs: DAY, message: "This network has started today's maximum of real testnet runs. Simulated test runs are still available." },
   } satisfies Record<string, Limit>;
 }

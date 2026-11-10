@@ -6,6 +6,8 @@ import type { Connector } from "./types";
 const KEY = /^[a-z][a-z0-9_]{1,31}$/;
 const ACTION = /^[a-z][a-z0-9_]{1,47}\.[a-z][a-z0-9_]{1,47}$/;   // "<connector>.<verb>" e.g. "webhook.deliver"
 
+const shapeOf = (c: Connector) => JSON.stringify([c.key, c.name, c.kind, c.reality, c.eventTypes, Object.entries(c.actions).map(([n, a]) => [n, a.sideEffect, a.idempotency]), !!c.inbound]);
+
 const REGISTRY = Symbol.for("employai.connectors");
 const g = globalThis as unknown as { [REGISTRY]?: Map<string, Connector> };
 const connectors: Map<string, Connector> = (g[REGISTRY] ??= new Map());
@@ -19,8 +21,10 @@ export function registerConnector(c: Connector): void {
     if (!["read", "write", "external_message"].includes(a.sideEffect)) throw new Error(`action ${name}: unknown side effect`);
     if (!["provider_key", "none"].includes(a.idempotency)) throw new Error(`action ${name}: unknown idempotency support`);
   }
+  // Next bundles route modules separately, so the SAME connector module can register more than once
+  // per process (identical shape): that is allowed. A DIFFERENT connector can never take an existing key.
   const existing = connectors.get(c.key);
-  if (existing && existing !== c) throw new Error(`connector ${c.key} is already registered`);
+  if (existing && existing !== c && shapeOf(existing) !== shapeOf(c)) throw new Error(`connector ${c.key} is already registered`);
   connectors.set(c.key, c);
 }
 

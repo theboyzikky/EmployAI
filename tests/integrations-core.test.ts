@@ -40,9 +40,10 @@ describe("connector registry", () => {
     expect(() => registerConnector(fake({ key: "Bad Key" }))).toThrow(/invalid/);
   });
 
-  test("a second, different connector can't take an existing key", () => {
+  test("a second, different connector can't take an existing key; a duplicate module copy of the same one can", () => {
     registerConnector(fake());
-    expect(() => registerConnector(fake())).toThrow(/already registered/);
+    expect(() => registerConnector(fake())).not.toThrow();                       // same connector, another bundle copy
+    expect(() => registerConnector(fake({ name: "Impostor", reality: "real" }))).toThrow(/already registered/);
   });
 });
 

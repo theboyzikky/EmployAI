@@ -68,6 +68,9 @@ export class MemoryKv implements Kv {
         const set = e && e.v instanceof Set ? e.v : new Set<string>();
         set.add(s.member);
         this.data.set(s.key, { v: set, exp: req.ttlMs && req.ttlMs > 0 ? this.now() + req.ttlMs : e?.exp ?? null });
+      } else if (s.op === "srem") {
+        const e = this.live(s.key);
+        if (e && e.v instanceof Set) { e.v.delete(s.member); if (e.v.size === 0) this.data.delete(s.key); }
       } else if (s.op === "max") {
         const cur = this.str(s.key);
         if (cur === null || decimalGreater(s.value, cur)) this.put(s.key, s.value, null);

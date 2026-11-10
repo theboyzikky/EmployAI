@@ -11,6 +11,8 @@ import { emptyCaseFile } from "./casefile";
 import type { DemoScenario } from "@/lib/workflows/demo-data";
 import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workflows/schema";
 import type { BlocklistReport } from "@/lib/security/blocklist";
+import type { ActionAttemptRecord, ConnectionRecord, InboundEventRecord } from "@/lib/integrations/records";
+import type { TaskRecord } from "@/lib/automation/records";
 import type { ActivityEvent, ApprovalRecord, LedgerRecord, PaymentAttempt, RunRecord, RunStepRecord, SecurityDecisionRecord, TestnetBatch } from "@/lib/runs/types";
 import { getKv, isSharedStore, MemoryKv } from "@/lib/kv";
 import type { Fence, SideOp } from "@/lib/kv/types";
@@ -125,6 +127,10 @@ export interface DiscoveryRepository {
   readState<T>(businessId: string, fn: (s: DevState) => T): Promise<T>;
   /** M7: the business whose public ledger has this slug, if any (the slug index). */
   businessIdForLedgerSlug(slug: string): Promise<string | null>;
+  /** P0: the business that owns this integration connection, if any (the connection index; re-checked). */
+  businessIdForConnection(connectionId: string): Promise<string | null>;
+  /** P0: businesses that may have due automation tasks (a hint for the recovery sweep; never trusted alone). */
+  businessesWithDueWork(): Promise<string[]>;
 }
 
 export type TxOptions = { fences?: Fence[]; side?: SideOp[] };
@@ -156,6 +162,12 @@ export type DevState = {
   payment_attempts?: Record<string, PaymentAttempt[]>;
   // M6: the SHARED blocklist (one list for every workspace, by design: requirement X2d).
   blocklist_reports?: BlocklistReport[];
+  // P0 platform (additive, keyed by business id): integration connections (secrets encrypted), inbound
+  // events (deduplicated, untrusted), outbound action attempts (write-ahead) and automation tasks.
+  connections?: Record<string, ConnectionRecord[]>;
+  inbound_events?: Record<string, InboundEventRecord[]>;
+  action_attempts?: Record<string, ActionAttemptRecord[]>;
+  tasks?: Record<string, TaskRecord[]>;
 };
 
 /**
@@ -247,6 +259,18 @@ export class FileDevStore implements DiscoveryRepository {
     if (!slug) return null;
     const b = Object.values((await this.snapshot()).businesses).find(x => !!x.public_ledger_slug && x.public_ledger_slug === slug);
     return b?.id ?? null;
+  }
+
+  async businessIdForConnection(connectionId: string) {
+    if (!connectionId) return null;
+    const s = await this.snapshot();
+    for (const [bid, list] of Object.entries(s.connections ?? {})) if (s.businesses[bid] && list.some(c => c.id === connectionId)) return bid;
+    return null;
+  }
+
+  async businessesWithDueWork() {
+    const s = await this.snapshot();
+    return Object.entries(s.tasks ?? {}).filter(([bid, list]) => s.businesses[bid] && list.some(t => t.status === "queued" || t.status === "running")).map(([bid]) => bid);
   }
 
   async getBusiness(id: string) {

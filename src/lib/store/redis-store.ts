@@ -78,6 +78,11 @@ export class RedisStore implements DiscoveryRepository {
         if (before && before !== after) side.push({ op: "del_if", key: storeKeys.slug(before), value: id });
         if (after && after === before) side.push({ op: "setnx", key: storeKeys.slug(after), value: id }); // refresh its expiry
         side.push({ op: "sadd", key: storeKeys.owner(back.business!.business.owner_hash), member: id });     // keep the owner index alive with the workspace
+        // Connection index (webhook routing): claimed for new connections, refreshed with the workspace.
+        for (const c of back.business!.connections ?? []) side.push({ op: "setnx", key: storeKeys.connection(c.id), value: id });
+        // Due-work index (recovery sweep): present while the business has live tasks.
+        const live = (back.business!.tasks ?? []).some(t => t.status === "queued" || t.status === "running");
+        side.push(live ? { op: "sadd", key: storeKeys.dueWork, member: id } : { op: "srem", key: storeKeys.dueWork, member: id });
       }
       if (!businessChanged && !sharedChanged && side.length === 0 && fences.length === 0) return out; // read-only
       if (this.beforeCommit) await this.beforeCommit();
@@ -101,6 +106,7 @@ export class RedisStore implements DiscoveryRepository {
     const p: BusinessPartition = {
       business, messages: [message], agents: [], workflows: [], runs: [], run_steps: {}, security_decisions: [], approval_requests: [],
       ledger_entries: [], activity_events: [], testnet_batches: [], payment_attempts: [],
+      connections: [], inbound_events: [], action_attempts: [], tasks: [],
     };
     const r = await this.kv.cas({
       docs: [{ key: storeKeys.business(business.id), expect: 0, value: JSON.stringify(p) }], ttlMs: this.ttlMs,
@@ -121,6 +127,18 @@ export class RedisStore implements DiscoveryRepository {
   async businessIdForLedgerSlug(slug: string) {
     if (!slug) return null;
     return this.kv.get(storeKeys.slug(slug));
+  }
+
+  async businessIdForConnection(connectionId: string) {
+    if (!connectionId) return null;
+    const bid = await this.kv.get(storeKeys.connection(connectionId));
+    if (!bid || !isSessionId(bid)) return null;
+    const p = (await this.load(bid)).p;   // the index is only a pointer: the business must really hold it
+    return p?.connections?.some(c => c.id === connectionId) ? bid : null;
+  }
+
+  async businessesWithDueWork() {
+    return (await this.kv.smembers(storeKeys.dueWork)).filter(isSessionId);
   }
 
   async getBusiness(id: string) {

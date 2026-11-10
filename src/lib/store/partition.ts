@@ -21,6 +21,10 @@ export type BusinessPartition = {
   activity_events: NonNullable<NonNullable<DevState["activity_events"]>[string]>;
   testnet_batches: NonNullable<NonNullable<DevState["testnet_batches"]>[string]>;
   payment_attempts: NonNullable<NonNullable<DevState["payment_attempts"]>[string]>;
+  connections: NonNullable<NonNullable<DevState["connections"]>[string]>;
+  inbound_events: NonNullable<NonNullable<DevState["inbound_events"]>[string]>;
+  action_attempts: NonNullable<NonNullable<DevState["action_attempts"]>[string]>;
+  tasks: NonNullable<NonNullable<DevState["tasks"]>[string]>;
 };
 export type SharedPartition = { blocklist_reports: NonNullable<DevState["blocklist_reports"]> };
 
@@ -28,7 +32,7 @@ export class ScopeViolation extends Error {
   constructor(detail: string) { super(`SCOPE_VIOLATION: ${detail}`); this.name = "ScopeViolation"; }
 }
 
-const BY_BUSINESS = ["messages", "agents", "workflows", "runs", "security_decisions", "approval_requests", "ledger_entries", "activity_events", "testnet_batches", "payment_attempts"] as const;
+const BY_BUSINESS = ["messages", "agents", "workflows", "runs", "security_decisions", "approval_requests", "ledger_entries", "activity_events", "testnet_batches", "payment_attempts", "connections", "inbound_events", "action_attempts", "tasks"] as const;
 
 /** A deep copy of one business's partition from a full state (null if the business doesn't exist). */
 export function extractBusiness(s: DevState, id: string): BusinessPartition | null {
@@ -43,6 +47,8 @@ export function extractBusiness(s: DevState, id: string): BusinessPartition | nu
     security_decisions: (s.security_decisions ?? {})[id] ?? [], approval_requests: (s.approval_requests ?? {})[id] ?? [],
     ledger_entries: (s.ledger_entries ?? {})[id] ?? [], activity_events: (s.activity_events ?? {})[id] ?? [],
     testnet_batches: (s.testnet_batches ?? {})[id] ?? [], payment_attempts: (s.payment_attempts ?? {})[id] ?? [],
+    connections: (s.connections ?? {})[id] ?? [], inbound_events: (s.inbound_events ?? {})[id] ?? [],
+    action_attempts: (s.action_attempts ?? {})[id] ?? [], tasks: (s.tasks ?? {})[id] ?? [],
   });
 }
 
@@ -55,6 +61,7 @@ export function assembleView(id: string, p: BusinessPartition | null, shared: Sh
   const v: DevState = {
     version: 2, businesses: {}, messages: {}, agents: {}, workflows: {}, runs: {}, run_steps: {}, security_decisions: {}, approval_requests: {},
     ledger_entries: {}, activity_events: {}, testnet_batches: {}, payment_attempts: {}, blocklist_reports: structuredClone(shared.blocklist_reports),
+    connections: {}, inbound_events: {}, action_attempts: {}, tasks: {},
   };
   if (!p) return v;
   const c = structuredClone(p);
@@ -62,6 +69,7 @@ export function assembleView(id: string, p: BusinessPartition | null, shared: Sh
   v.messages[id] = c.messages; v.agents[id] = c.agents; v.workflows![id] = c.workflows; v.runs![id] = c.runs;
   v.security_decisions![id] = c.security_decisions; v.approval_requests![id] = c.approval_requests; v.ledger_entries![id] = c.ledger_entries;
   v.activity_events![id] = c.activity_events; v.testnet_batches![id] = c.testnet_batches; v.payment_attempts![id] = c.payment_attempts;
+  v.connections![id] = c.connections ?? []; v.inbound_events![id] = c.inbound_events ?? []; v.action_attempts![id] = c.action_attempts ?? []; v.tasks![id] = c.tasks ?? [];
   Object.assign(v.run_steps!, c.run_steps);
   return v;
 }
@@ -90,6 +98,8 @@ export function splitView(v: DevState, id: string): { business: BusinessPartitio
       run_steps: { ...(v.run_steps ?? {}) }, security_decisions: (v.security_decisions ?? {})[id] ?? [], approval_requests: (v.approval_requests ?? {})[id] ?? [],
       ledger_entries: (v.ledger_entries ?? {})[id] ?? [], activity_events: (v.activity_events ?? {})[id] ?? [],
       testnet_batches: (v.testnet_batches ?? {})[id] ?? [], payment_attempts: (v.payment_attempts ?? {})[id] ?? [],
+      connections: (v.connections ?? {})[id] ?? [], inbound_events: (v.inbound_events ?? {})[id] ?? [],
+      action_attempts: (v.action_attempts ?? {})[id] ?? [], tasks: (v.tasks ?? {})[id] ?? [],
     },
     shared,
   };
@@ -105,6 +115,8 @@ export function mergeIntoFull(s: DevState, id: string, p: BusinessPartition | nu
   (s.security_decisions ??= {})[id] = p.security_decisions; (s.approval_requests ??= {})[id] = p.approval_requests;
   (s.ledger_entries ??= {})[id] = p.ledger_entries; (s.activity_events ??= {})[id] = p.activity_events;
   (s.testnet_batches ??= {})[id] = p.testnet_batches; (s.payment_attempts ??= {})[id] = p.payment_attempts;
+  (s.connections ??= {})[id] = p.connections ?? []; (s.inbound_events ??= {})[id] = p.inbound_events ?? [];
+  (s.action_attempts ??= {})[id] = p.action_attempts ?? []; (s.tasks ??= {})[id] = p.tasks ?? [];
   const steps = (s.run_steps ??= {});
   for (const [runId, list] of Object.entries(p.run_steps)) steps[runId] = list;
 }

@@ -4,4 +4,7 @@ export const storeKeys = {
   shared: "shared",
   owner: (ownerHash: string) => `owner:${ownerHash}`,
   slug: (slug: string) => `slug:${slug}`,
+  connection: (connectionId: string) => `conn:${connectionId}`,
+  /** Businesses with live automation tasks (a set; the recovery sweep's starting point). */
+  dueWork: "work:due",
 };

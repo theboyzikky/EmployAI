@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-const BY_BUSINESS = ["messages", "agents", "workflows", "runs", "security_decisions", "approval_requests", "ledger_entries", "activity_events", "testnet_batches", "payment_attempts"];
+const BY_BUSINESS = ["messages", "agents", "workflows", "runs", "security_decisions", "approval_requests", "ledger_entries", "activity_events", "testnet_batches", "payment_attempts", "connections", "inbound_events", "action_attempts", "tasks"];
 const DAY_MS = 86_400_000;
 
 export const keys = {
@@ -42,6 +42,7 @@ export function planFromDevState(state, { only = null } = {}) {
       business: part.business, messages: part.messages, agents: part.agents, workflows: part.workflows, runs: part.runs, run_steps,
       security_decisions: part.security_decisions, approval_requests: part.approval_requests, ledger_entries: part.ledger_entries,
       activity_events: part.activity_events, testnet_batches: part.testnet_batches, payment_attempts: part.payment_attempts,
+      connections: part.connections, inbound_events: part.inbound_events, action_attempts: part.action_attempts, tasks: part.tasks,
     };
     return { id, ownerHash: state.businesses[id].owner_hash, slug: state.businesses[id].public_ledger_slug ?? null, doc: JSON.stringify(doc) };
   });
@@ -83,7 +84,7 @@ export async function applyPlan(client, plan, { ttlDays = 60, includeShared = tr
 
 /** Read every business from the shared store back into a dev-store state (rollback / backup). */
 export async function exportToDevState(client) {
-  const state = { version: 2, businesses: {}, messages: {}, agents: {}, workflows: {}, runs: {}, run_steps: {}, security_decisions: {}, approval_requests: {}, ledger_entries: {}, activity_events: {}, testnet_batches: {}, payment_attempts: {}, blocklist_reports: [] };
+  const state = { version: 2, businesses: {}, messages: {}, agents: {}, workflows: {}, runs: {}, run_steps: {}, security_decisions: {}, approval_requests: {}, ledger_entries: {}, activity_events: {}, testnet_batches: {}, payment_attempts: {}, connections: {}, inbound_events: {}, action_attempts: {}, tasks: {}, blocklist_reports: [] };
   const found = new Set();
   let cursor = "0";
   do {

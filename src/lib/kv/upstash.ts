@@ -53,6 +53,7 @@ for j = 1, nSide do
   if op == "setnx" then put(key, arg, ttl)
   elseif op == "del_if" then if redis.call("GET", key) == arg then redis.call("DEL", key) end
   elseif op == "sadd" then redis.call("SADD", key, arg); if ttl > 0 then redis.call("PEXPIRE", key, ttl) end
+  elseif op == "srem" then redis.call("SREM", key, arg)
   elseif op == "max" then
     local cur = redis.call("GET", key)
     if (not cur) or greater(arg, cur) then redis.call("SET", key, arg) end
@@ -141,7 +142,7 @@ export class UpstashKv implements Kv {
     const args: Array<string | number> = [req.docs.length, req.ttlMs ?? 0, fences.length, side.length];
     for (const d of req.docs) args.push(d.expect, d.value === null ? 0 : 1, d.value ?? "", d.ttlMs === undefined ? "" : d.ttlMs ?? 0);
     for (const f of fences) args.push(f.token, f.minTtlMs);
-    for (const s of side) args.push(s.op, s.op === "sadd" ? s.member : s.value);
+    for (const s of side) args.push(s.op, s.op === "sadd" || s.op === "srem" ? s.member : s.value);
     const r = await this.evalScript(CAS, keys, args);
     if (r === "ok" || r === "conflict" || r === "fence_lost" || r === "side_conflict") return r;
     throw new KvUnavailableError("Unexpected commit answer.");

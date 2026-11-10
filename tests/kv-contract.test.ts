@@ -77,6 +77,8 @@ describe.each(harnesses)("Kv contract: %s", (_name, make) => {
     await kv.cas({ docs: [], ttlMs: 60_000, side: [{ op: "del_if", key: "slug:s", value: "b1" }, { op: "sadd", key: "own:h", member: "b3" }] });
     expect(await kv.get("slug:s")).toBeNull();
     expect((await kv.smembers("own:h")).sort()).toEqual(["b1", "b3"]);
+    await kv.cas({ docs: [], ttlMs: null, side: [{ op: "srem", key: "own:h", member: "b1" }, { op: "srem", key: "own:h", member: "never-there" }] });
+    expect(await kv.smembers("own:h")).toEqual(["b3"]);
     await kv.cas({ docs: [], ttlMs: null, side: [{ op: "max", key: "nonce", value: "277000000000005" }] });
     await kv.cas({ docs: [], ttlMs: null, side: [{ op: "max", key: "nonce", value: "99999999999999" }] });
     expect(await kv.get("nonce")).toBe("277000000000005");

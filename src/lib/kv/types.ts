@@ -19,12 +19,14 @@ export type CasDoc = { key: string; expect: number; value: string | null; ttlMs?
  *  - setnx:  claim `key` for `value` (fails the whole commit if it holds a different value)
  *  - del_if: delete `key` only if it holds `value`
  *  - sadd:   add `member` to the set at `key`
+ *  - srem:   remove `member` from the set at `key`
  *  - max:    keep the larger of the stored and given non-negative integer (decimal string); no expiry
  */
 export type SideOp =
   | { op: "setnx"; key: string; value: string }
   | { op: "del_if"; key: string; value: string }
   | { op: "sadd"; key: string; member: string }
+  | { op: "srem"; key: string; member: string }
   | { op: "max"; key: string; value: string };
 
 /** The commit applies only while `key` still holds `token` with at least `minTtlMs` left (fencing). Every fence given must hold. */

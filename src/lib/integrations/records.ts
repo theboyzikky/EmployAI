@@ -1,0 +1,80 @@
+// Stored records of the integration layer (one business partition each; see src/lib/store/partition.ts).
+// Type-only module: no runtime imports, so the store and the migration script can share it.
+import type { AgentKey } from "@/lib/catalogue/catalogue";
+
+/** AES-256-GCM ciphertext of a connection's secrets (src/lib/integrations/credentials.ts). */
+export type EncryptedBlob = { v: 1; alg: "A256GCM"; iv: string; tag: string; ct: string };
+
+/** Which employee may use which actions of this connection (owner-granted). */
+export type ConnectionGrant = { agent: AgentKey; actions: string[] };
+/** Which employee receives which event types from this connection. */
+export type ConnectionRoute = { event_type: string; agent: AgentKey };
+
+export type ConnectionRecord = {
+  /** Unguessable (144 bits); appears in the webhook URL. */
+  id: string;
+  business_id: string;
+  connector: string;
+  label: string;
+  status: "active" | "disabled";
+  reality: "real" | "simulated";
+  /** Non-secret settings only. */
+  config: Record<string, unknown>;
+  /** Encrypted; NEVER returned by any API or view. */
+  secrets: EncryptedBlob | null;
+  grants: ConnectionGrant[];
+  routes: ConnectionRoute[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type InboundEventStatus = "received" | "routed" | "unrouted" | "ignored";
+export type InboundEventRecord = {
+  id: string;
+  business_id: string;
+  connection_id: string;
+  connector: string;
+  /** Provider's id; unique per connection (duplicates are dropped). */
+  external_id: string;
+  type: string;
+  subject: string | null;
+  payload: Record<string, unknown>;
+  occurred_at: string | null;
+  received_at: string;
+  /** Inbound content can never authorise anything by itself. */
+  provenance: "untrusted";
+  status: InboundEventStatus;
+  routed_to: AgentKey | null;
+  note: string | null;
+};
+
+/**
+ * One outbound action (a durable, write-ahead record, like a payment attempt). Statuses:
+ *  prepared → sending → done | rejected | unknown → (reconciled) done | rejected | escalated
+ *  aborted:   stopped before anything was sent (kill switch, paused employee, revoked grant)
+ *  escalated: outcome unknown and not safely repeatable: the owner decides; never re-sent automatically
+ */
+export type ActionStatus = "prepared" | "sending" | "done" | "rejected" | "unknown" | "aborted" | "escalated";
+export type ActionAttemptRecord = {
+  id: string;
+  business_id: string;
+  connection_id: string;
+  action: string;
+  agent: AgentKey;
+  /** Unique per business: the same logical action is recorded once (and sent as the provider key). */
+  idempotency_key: string;
+  input: Record<string, unknown>;
+  status: ActionStatus;
+  /** Delivery attempts made (each one recorded BEFORE it is made). */
+  deliveries: number;
+  provider_ref: string | null;
+  error: { code: string; message: string } | null;
+  /** Earliest time a retryable rejection may be retried. */
+  retry_at: string | null;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  /** Correlation: the run, event or task that asked for it. */
+  correlation_id: string;
+  created_at: string;
+  updated_at: string;
+};

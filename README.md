@@ -4,7 +4,12 @@ A small-business owner describes their business in plain language. EmployAI's co
 
 Built at NEAR HACKATHON (2026-11-03 to 2026-11-14). Tracks: `business` (primary), `security` (secondary).
 
-**Verified on NEAR testnet:** EmployAI paid supplier-1 **0.031 NEAR** through its own runner, security gate, approval and restricted-key signer. Transaction [`AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP`](https://testnet.near.rocks/tx/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP): contract record `Paid`, `payout_completed` event, treasury −0.031 NEAR, supplier +0.031 NEAR, gas 0.00048 NEAR. Evidence: [m5-batches.md](docs/architecture/poc-results/m5-batches.md).
+**Verified on NEAR testnet:** EmployAI paid supplier-1 **0.031 NEAR twice**, each time through its own runner, security gate, owner approval and restricted-key signer, and each independently verified (final success, contract record `Paid`, `payout_completed` event, treasury −0.031 NEAR, supplier +0.031 NEAR, gas ≈ 0.00048 NEAR):
+
+- B3 (first payout, gate WARN "first payment to this supplier"): [`AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP`](https://testnet.near.rocks/tx/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP)
+- S2 (second payout, gate ALLOW, signed with the rotated key after a key-revocation drill): [`6BV9JEX2bHkEyyYCbFjyuDJtTca8jLekrRP9TA5JRUC4`](https://testnet.near.rocks/tx/6BV9JEX2bHkEyyYCbFjyuDJtTca8jLekrRP9TA5JRUC4)
+
+Evidence for every testnet action: [m5-batches.md](docs/architecture/poc-results/m5-batches.md).
 
 ## The problem
 
@@ -50,7 +55,7 @@ Requirements: Node.js ≥ 20.9 (built with 26.13.0) and npm. No NEAR keys or AI 
 7. **Do:** switch on the **kill switch** in the header while a run waits. **See:** the run is cancelled and the approval invalidated.
 8. **Do:** open **Ledger** and **Security**. **See:** the ledger keeps real and simulated rows apart; the Security tab shows the shared blocklist (with the labelled `scam-supplier` fixture and its evidence hash) and a report form. On the Ledger tab, **Publish** creates a public link (`/ledger/<random>`). It's private by default and shows only verified on-chain payouts: no business amounts, simulated runs or business details. **Make private** turns the link off for good.
 9. **Do:** `npm run demo:attack`. **See:** the log below: the injected instruction, **BLOCK** with three reasons, no approval, 0 signatures, 0 transactions, no transaction hash.
-10. **Do:** `npm test`. **See:** 523 tests pass. All network access is blocked in tests; the NEAR chain is faked, so no keys are used.
+10. **Do:** `npm test`. **See:** 527 tests pass. All network access is blocked in tests; the NEAR chain is faked, so no keys are used.
 11. **Do:** open the verified payout on [NEAR Rocks](https://testnet.near.rocks/tx/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP). **See:** signer `finance-agent.employai-demo.testnet`, `request_payment`, the 0.031 NEAR transfer to supplier-1, `on_payout` returning `true`, and the `payout_completed` event.
 12. **Optional, real testnet payment** (needs your own accounts, contract and restricted key; see [scripts/m5/README.md](scripts/m5/README.md)): set the NEAR variables in `.env` (names only in `.env.example`), arm a batch on the Runs page, pick **NEAR testnet (real transaction)**, run, then approve. **See:** "Paid · verified on NEAR testnet" with the hash, and a verified ledger row.
 

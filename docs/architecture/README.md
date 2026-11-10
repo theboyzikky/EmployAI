@@ -1,6 +1,8 @@
 # EmployAI architecture — Gate 1 (simplified scope)
 
-Status: **Revised 2026-11-05. Tracks are final: `business` (primary) + `security` (secondary). Zero-additional-spending directive in force ([09](09-zero-spend-plan.md)). The remaining decisions below still await approval.** Nothing is implemented yet: no application or contract code, no testnet accounts, no AI API calls.
+Status (2026-11-10): **M0–M5 implemented and committed; M6 security evidence and M7 public ledger done; customer payments (`pay_order`) deliberately not enabled** (see the README's Limitations). Two supplier payouts were made through the app and verified on NEAR testnet (B3 `AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP`, S2 `6BV9JEX2bHkEyyYCbFjyuDJtTca8jLekrRP9TA5JRUC4`); evidence in [poc-results/m5-batches.md](poc-results/m5-batches.md).
+
+_Earlier status (kept for the record):_ **Revised 2026-11-05. Tracks are final: `business` (primary) + `security` (secondary). Zero-additional-spending directive in force ([09](09-zero-spend-plan.md)). The remaining decisions below still await approval.** Nothing is implemented yet: no application or contract code, no testnet accounts, no AI API calls.
 
 EmployAI is a hackathon **prototype** that shows one idea working end to end: *describe your business, and EmployAI designs, builds and safely runs an AI workforce for it.* Scope, track choices and cuts are set in **[00-mvp-scope.md](00-mvp-scope.md)**, which overrides everything else here.
 

@@ -3,6 +3,9 @@ import "@/lib/chain/live";   // M5: registers the NEAR testnet payment port (ser
 import { jsonError, readBody } from "@/lib/http";
 import { UUID, runResponse, runsRoute } from "@/lib/runs/routes";
 import { decideApproval } from "@/lib/runs/runner";
+import "@/lib/automation/run-handlers";   // background continuation (advance_run)
+import { wake } from "@/lib/automation/dispatch";
+
 
 type Ctx = { params: Promise<{ id: string; approvalId: string }> };
 const Body = z.object({ decision: z.enum(["approve", "reject"]) }).strict();
@@ -20,6 +23,7 @@ export function POST(request: Request, ctx: Ctx) {
     const body = await readBody(request, Body, cid);
     if ("response" in body) return body.response;
     const { runId } = await decideApproval(business.id, approvalId, body.data.decision);
+    await wake(business.id);                // the approved run finishes in the background
     return runResponse(business, runId, cid, { more: true });
   }, { mutation: true });
 }

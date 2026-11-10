@@ -216,6 +216,7 @@ export async function startRun(businessId: string, input: { workflowId: string; 
         expected: expectedFor(doc, input.scenario, spent, mode, paidTestnet(tx, businessId)), end_reason: null, error: null,
       });
       tx.appendEvent(businessId, "owner", "run.started", `run:${run.id}`, "running", run.id, { workflow_version: elig.workflow.version, scenario: input.scenario, mode, batch: batch?.batch_ref ?? null });
+      tx.enqueueAdvance(businessId, run.id);   // keeps going in the background, with or without the browser
       return { runId: run.id, created: true };
     });
     if ("refusal" in out && out.refusal) throw new ServiceError(out.refusal.code, out.refusal.status, out.refusal.message);
@@ -927,6 +928,7 @@ export async function decideApproval(businessId: string, approvalId: string, dec
       if (!tx.patchApproval(businessId, a.id, ["pending"], { status, decided_at: tx.now, decided_by: "owner" })) return { err: ["ALREADY_DECIDED", 409, "This approval has already been settled."] as const, runId: run.id };
       tx.patchRun(businessId, run.id, { status: "running" }, { status: ["waiting_approval"], control: null });
       tx.appendEvent(businessId, "owner", `approval.${status}`, `approval:${a.id}`, status, run.id, {});
+      tx.enqueueAdvance(businessId, run.id);   // continue (or settle the rejection) in the background
       return { runId: run.id };
     });
     if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);
@@ -983,6 +985,7 @@ export async function resumeRun(businessId: string, runId: string, hooks?: RunHo
       if (tx.business(businessId)?.kill_switch) return { err: ["KILL_SWITCH_ACTIVE", 409, "The kill switch is on."] as const };
       tx.patchRun(businessId, runId, { status: "running", pause_reason: null }, { status: ["paused", "interrupted"] });
       tx.appendEvent(businessId, "owner", "run.resumed", `run:${runId}`, "running", runId, { from: latest.status });
+      tx.enqueueAdvance(businessId, runId);
       return { ok: true as const };
     });
     if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);
@@ -1095,6 +1098,7 @@ export async function requestPaymentRetry(businessId: string, runId: string): Pr
       }, { status: ["failed"] });
       if (!ok) return { err: ["RETRY_NOT_ALLOWED", 409, "The run changed; try again."] as const };
       tx.appendEvent(businessId, "owner", "payment.retry_requested", `attempt:${e.attemptId}`, "running", runId, { mode: e.mode, batch: batch.batch_ref });
+      tx.enqueueAdvance(businessId, runId);
       return { ok: true as const };
     });
     if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);

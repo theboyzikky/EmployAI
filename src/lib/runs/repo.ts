@@ -12,6 +12,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import type { BlocklistReport } from "@/lib/security/blocklist";
+import { enqueueTaskIn } from "@/lib/automation/tasks";
 import { discoveryRepository, type AgentRecord, type AgentStatus, type BusinessRecord, type DevState, type TxOptions, type WorkflowRecord } from "@/lib/discovery/store";
 import type { ActivityEvent, Actor, ApprovalRecord, ApprovalStatus, LedgerRecord, PaymentAttempt, RunControl, RunRecord, RunStatus, RunStepRecord, SecurityDecisionRecord, TestnetBatch, TestnetLedgerRecord, TestRunLedgerRecord } from "./types";
 
@@ -56,6 +57,16 @@ export class RunTx {
   armedBatch(businessId: string): TestnetBatch | null {
     const b = ((this.s.testnet_batches ?? {})[businessId] ?? []).find(x => !x.disarmed_at && x.expires_at > this.now);
     return b ? copy(b) : null;
+  }
+
+  // ---- P0 · background continuation ----------------------------------------------------------------
+  /**
+   * Ask the automation engine to keep driving this run in the background (one live task per run). Called
+   * in the same commit as the transition that needs it, so the run continues even if the owner closes
+   * the app. Driving goes through the same advanceRun(), leases, locks and payment safeguards as the UI.
+   */
+  enqueueAdvance(businessId: string, runId: string, delayMs = 0): void {
+    enqueueTaskIn(this.s, businessId, { kind: "advance_run", ref: runId, dedupeKey: `run:${runId}`, delayMs }, this.now);
   }
 
   // ---- M5 · testnet batches ----------------------------------------------------------------------

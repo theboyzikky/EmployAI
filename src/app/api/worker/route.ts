@@ -2,7 +2,9 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/http";
 import "@/lib/integrations/providers";   // registers the real connectors
+import "@/lib/chain/live";                 // registers the NEAR testnet payment port (to finish testnet runs)
 import "@/lib/automation/handlers";      // registers the task handlers
+import "@/lib/automation/run-handlers";  // advance_run
 import { sweep, wake, workerUrl } from "@/lib/automation/dispatch";
 import { qstashVerify } from "@/lib/automation/qstash";
 import { runDueTasks } from "@/lib/automation/worker";

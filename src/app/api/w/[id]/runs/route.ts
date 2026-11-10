@@ -3,6 +3,9 @@ import "@/lib/chain/live";   // M5: registers the NEAR testnet payment port (ser
 import { jsonError, jsonOk, readBody } from "@/lib/http";
 import { IDEMPOTENCY_KEY, UUID, runResponse, runsRoute } from "@/lib/runs/routes";
 import { startRun } from "@/lib/runs/runner";
+import "@/lib/automation/run-handlers";   // background continuation (advance_run)
+import { wake } from "@/lib/automation/dispatch";
+
 import { RUN_MODES, SCENARIOS } from "@/lib/runs/types";
 import { buildRunsView } from "@/lib/runs/view";
 import { callerKey, limitResponse, limits } from "@/lib/hosted/rate-limit";
@@ -36,6 +39,7 @@ export function POST(request: Request, ctx: Ctx) {
       if (limited) return limited;
     }
     const { runId, created } = await startRun(business.id, { workflowId: body.data.workflow_id, scenario: body.data.scenario, idempotencyKey: key, mode: body.data.mode, confirmRealTransactions: body.data.confirm_real_transactions });
+    if (created) await wake(business.id);   // the run continues even if the owner closes the page
     return runResponse(business, runId, cid, { created, more: true });
   }, { mutation: true });
 }

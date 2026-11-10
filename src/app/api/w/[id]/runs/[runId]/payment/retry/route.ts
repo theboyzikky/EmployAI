@@ -2,6 +2,9 @@ import "@/lib/chain/live";   // M5: registers the NEAR testnet payment port (ser
 import { jsonError, readBody } from "@/lib/http";
 import { EmptyBody, UUID, runResponse, runsRoute } from "@/lib/runs/routes";
 import { requestPaymentRetry } from "@/lib/runs/runner";
+import "@/lib/automation/run-handlers";   // background continuation (advance_run)
+import { wake } from "@/lib/automation/dispatch";
+
 
 type Ctx = { params: Promise<{ id: string; runId: string }> };
 
@@ -17,6 +20,7 @@ export function POST(request: Request, ctx: Ctx) {
     const body = await readBody(request, EmptyBody, cid);
     if ("response" in body) return body.response;
     await requestPaymentRetry(business.id, runId);
+    await wake(business.id);
     return runResponse(business, runId, cid, { more: true });
   }, { mutation: true });
 }

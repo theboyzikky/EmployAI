@@ -46,7 +46,7 @@ export function HowItWorks() {
                 <h3 className="relative mt-6 text-lg font-semibold leading-snug text-ink">
                   <span className="sr-only">Step {i + 1}: </span>{s.title}
                 </h3>
-                <p className="relative mt-2 text-[0.9375rem] font-light leading-relaxed text-muted">{s.body}</p>
+                <p className="relative mt-2 text-sm font-light leading-relaxed text-muted">{s.body}</p>
                 <div aria-hidden="true" className="relative mt-auto pt-6">
                   <div className="rounded-2xl border border-line bg-surface-2 p-3">{s.preview}</div>
                 </div>

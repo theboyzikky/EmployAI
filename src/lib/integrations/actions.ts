@@ -18,6 +18,7 @@ import { discoveryRepository, type DevState } from "@/lib/discovery/store";
 import { audit, IntegrationError, loadConnectionForUse } from "./connections";
 import type { ActionAttemptRecord, ActionStatus } from "./records";
 import { actionSpec } from "./registry";
+import { enqueueTaskIn } from "@/lib/automation/tasks";
 import type { ActionOutcome } from "./types";
 
 export const ACTION_LEASE_MS = 60_000;
@@ -75,6 +76,8 @@ export async function requestAction(businessId: string, r: { connectionId: strin
     };
     list.push(rec);
     audit(s, businessId, `agent:${r.agent}`, "action.prepared", `action:${rec.id}`, "prepared", r.correlationId, { action: r.action, connection: r.connectionId });
+    // Its delivery is a durable task, enqueued in this same commit: recorded work can't lose its task.
+    enqueueTaskIn(s, businessId, { kind: "drive_action", ref: rec.id, dedupeKey: `action:${rec.id}` });
     return { attemptId: rec.id, created: true };
   });
 }

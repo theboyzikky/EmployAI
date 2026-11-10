@@ -1,0 +1,52 @@
+import "server-only";
+// Task handlers for the integration layer (registered with the worker on import).
+//  - drive_action:  drive a durable outbound action (src/lib/integrations/actions.ts) and map its state
+//                   to the task: finished → done; waiting for a provider's retry time → later; unknown →
+//                   look again shortly (reconcile, safe re-send or escalation happen in driveAction).
+//  - process_event: hand a routed inbound event to the automation registered for (employee, event type).
+//                   P0 has no employee automations yet: the event is kept, marked for the owner, and the
+//                   task completes — nothing is invented. P1 registers the first real one.
+import { discoveryRepository } from "@/lib/discovery/store";
+import type { AgentKey } from "@/lib/catalogue/catalogue";
+import { driveAction } from "@/lib/integrations/actions";
+import { audit } from "@/lib/integrations/connections";
+import type { InboundEventRecord } from "@/lib/integrations/records";
+import type { TaskRecord } from "./records";
+import { registerTaskHandler, type TaskResult } from "./worker";
+
+const soon = (ms: number) => new Date(Date.now() + ms).toISOString();
+
+registerTaskHandler("drive_action", async (task: TaskRecord): Promise<TaskResult> => {
+  const status = await driveAction(task.business_id, task.ref);
+  if (status === "missing") return { kind: "cancelled", reason: "The action no longer exists." };
+  if (status === "done" || status === "rejected" || status === "aborted" || status === "escalated") return { kind: "done" };
+  if (status === "busy" || status === "sending") return { kind: "later", atIso: soon(15_000) };
+  if (status === "unknown") return { kind: "later", atIso: soon(30_000) };
+  // prepared: a provider asked us to wait until retry_at
+  const at = await discoveryRepository().readState(task.business_id, s => (s.action_attempts ?? {})[task.business_id]?.find(a => a.id === task.ref)?.retry_at ?? null);
+  return { kind: "later", atIso: at ?? soon(30_000) };
+});
+
+/** An employee automation for one event type (registered by the workforce layer, P1 onwards). */
+export type EventAutomation = (ev: InboundEventRecord) => Promise<TaskResult>;
+const AUTOMATIONS = Symbol.for("employai.eventAutomations");
+const ga = globalThis as unknown as { [AUTOMATIONS]?: Map<string, EventAutomation> };
+const automations: Map<string, EventAutomation> = (ga[AUTOMATIONS] ??= new Map());
+export function registerEventAutomation(agent: AgentKey, eventType: string, fn: EventAutomation) { automations.set(`${agent}:${eventType}`, fn); }
+
+registerTaskHandler("process_event", async (task: TaskRecord): Promise<TaskResult> => {
+  const ev = await discoveryRepository().readState(task.business_id, s => (s.inbound_events ?? {})[task.business_id]?.find(e => e.id === task.ref) ?? null);
+  if (!ev) return { kind: "cancelled", reason: "The event is no longer kept." };
+  if (ev.status !== "routed" || !ev.routed_to) return { kind: "done" };   // unrouted: already flagged for the owner
+  const fn = automations.get(`${ev.routed_to}:${ev.type}`);
+  if (fn) return fn(ev);
+  await discoveryRepository().transact(task.business_id, s => {
+    const e = (s.inbound_events ?? {})[task.business_id]?.find(x => x.id === ev.id);
+    if (!e || e.note) return;
+    e.note = `Routed to the ${ev.routed_to} employee. No automation for "${ev.type}" events is active yet, so it is kept for the owner.`;
+    audit(s, task.business_id, "system", "event.awaiting_automation", `event:${ev.id}`, "routed", ev.id, { agent: ev.routed_to, type: ev.type });
+  });
+  return { kind: "done" };
+});
+
+export const INTEGRATION_HANDLERS_REGISTERED = true;

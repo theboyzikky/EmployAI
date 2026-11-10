@@ -1,16 +1,18 @@
 # Demo video: edit plan
 
-**Format:** a motion-graphics film with three short real-app clips cut in. No voice and no music. Captions are on screen, so the video works with the sound off.
+**Format:** a motion-graphics film with three short real-app clips cut in. Captions are on screen and there is no voice-over. The page generates an upbeat soundtrack and sound effects itself, so there's nothing to license, and the video still works with the sound off.
 **Length:** about 2 minutes. **Resolution:** 1920×1080.
 
 ## 1. Record the film
 
 1. Start the dev server and open `http://localhost:3101/video/film.html` in Chrome or Edge.
 2. Press **F** for fullscreen, then **H** to hide the hint bar. This also hides the cursor.
-3. Start your screen recorder (Windows: Snipping Tool, Record), then press **Space** to play.
-4. The film runs about 96 seconds, then holds on the last frame. Stop recording.
+3. Start your screen recorder (Windows: Snipping Tool, Record) with **system audio turned on**, so the soundtrack is captured. Then press **Space** to play. The sound starts with that key press, because browsers block audio until you press a key.
+4. The film runs about 96 seconds and ends on a final chord, holding the last frame. Stop recording a couple of seconds after the chord fades.
 
-Other keys: **R** restarts the film. **1–7** jumps to a scene, which is useful for re-recording a single scene.
+Other keys: **R** restarts the film. **1–7** jumps to a scene, which is useful for re-recording a single scene. **M** turns the sound on or off.
+
+**Sound design:** the track is 118 BPM dance-pop in C major. It builds with a filter during the hook, then the full beat comes in. The attack scene drops to a tense half-time groove, and the outro lifts back up. Effects: whooshes on scene changes, soft ticks as cards appear, a chime when the payment lands, a glitch on the injected quote, an impact on BLOCK, and a shimmer on the logo. Keep the music running quietly under the real clips when you edit, or let each clip play its own sound.
 
 | # | Scene | Length | What it shows |
 |---|-------|--------|---------------|

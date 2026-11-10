@@ -8,8 +8,9 @@ const KEY = Symbol.for("employai.fenceContext");
 const g = globalThis as unknown as { [KEY]?: AsyncLocalStorage<Fence[]> };
 const als: AsyncLocalStorage<Fence[]> = (g[KEY] ??= new AsyncLocalStorage<Fence[]>());
 
+/** Run `fn` under `fence`. A new lease on a lock replaces any older fence of the SAME lock. */
 export function withFence<T>(fence: Fence, fn: () => Promise<T>): Promise<T> {
-  return als.run([...(als.getStore() ?? []), fence], fn);
+  return als.run([...(als.getStore() ?? []).filter(f => f.key !== fence.key), fence], fn);
 }
 
 export const activeFences = (): Fence[] => als.getStore() ?? [];

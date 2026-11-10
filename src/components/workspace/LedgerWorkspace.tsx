@@ -1,6 +1,7 @@
 import { Icon, ReceiptIcon, CheckCircleIcon, XIcon, ClockIcon, InfoIcon } from "@/components/icons";
 import type { LedgerRowView, LedgerView } from "@/lib/runs/ledger-view";
 import { cx } from "@/lib/cx";
+import { PublicLedgerToggle } from "./PublicLedgerToggle";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
 const ngn = (n: number) => `₦${n.toLocaleString("en-NG")}`;
@@ -27,6 +28,7 @@ export function LedgerWorkspace({ view }: { view: LedgerView }) {
           <Stat label="In progress" value={String(t.pendingCount)} note="Not counted as paid" />
           <Stat label="Simulated (test runs)" value={String(t.simulatedCount)} note="No transaction" />
         </dl>
+        <PublicLedgerToggle businessId={view.businessId} initialSlug={view.publicSlug} />
       </section>
 
       {view.pending.length > 0 && (

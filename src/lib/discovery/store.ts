@@ -37,6 +37,8 @@ export type BusinessRecord = {
   /** M4 (doc 03 column): the in-app kill switch. Absent means off; existing records are never rewritten. */
   kill_switch?: boolean;
   kill_switch_changed_at?: string | null;
+  /** M7: the public ledger's unguessable slug; absent or null = private (the default). */
+  public_ledger_slug?: string | null;
   created_at: string;
   updated_at: string;
 };

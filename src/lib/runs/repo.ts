@@ -30,6 +30,17 @@ export class RunTx {
   approvals(businessId: string): ApprovalRecord[] { return copy((this.s.approval_requests ?? {})[businessId] ?? []); }
   ledger(businessId: string): LedgerRecord[] { return copy((this.s.ledger_entries ?? {})[businessId] ?? []); }
   events(businessId: string): ActivityEvent[] { return copy((this.s.activity_events ?? {})[businessId] ?? []); }
+  /** M7: publish (with a new unguessable slug) or unpublish the business's public ledger. */
+  publishLedgerSlug(businessId: string, slug: string | null): void {
+    const b = this.s.businesses[businessId];
+    if (!b) throw new Error("NOT_FOUND");
+    b.public_ledger_slug = slug;
+  }
+  /** M7: the business whose public ledger has this slug (null if none or unpublished). */
+  businessByLedgerSlug(slug: string): BusinessRecord | null {
+    const b = Object.values(this.s.businesses).find(x => !!x.public_ledger_slug && x.public_ledger_slug === slug);
+    return b ? copy(b) : null;
+  }
   /** M6: the shared blocklist reports (every workspace sees the same list). */
   blocklistReports(): BlocklistReport[] { return copy(this.s.blocklist_reports ?? []); }
   insertBlocklistReport(r: Omit<BlocklistReport, "id" | "created_at">): BlocklistReport {

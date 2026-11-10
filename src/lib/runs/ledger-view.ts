@@ -28,6 +28,8 @@ export type PendingPaymentView = { attemptId: string; runId: string; status: str
 
 export type LedgerView = {
   businessId: string;
+  /** M7: the public ledger link slug when published (null = private, the default). */
+  publicSlug: string | null;
   totals: { paidNear: string; paidCount: number; failedCount: number; simulatedCount: number; pendingCount: number };
   rows: LedgerRowView[];            // newest first
   pending: PendingPaymentView[];
@@ -60,6 +62,7 @@ export function buildLedgerView(businessId: string): Promise<LedgerView> {
     const paidYocto = paid.reduce((t, l) => t + BigInt(l.amount as string), BigInt(0));
     return {
       businessId,
+      publicSlug: tx.business(businessId)?.public_ledger_slug ?? null,
       totals: {
         paidNear: nearText(paidYocto.toString()), paidCount: paid.length,
         failedCount: rows.filter(r => r.kind === "onchain_failed").length, simulatedCount: rows.filter(r => r.kind === "simulated").length, pendingCount: pending.length,

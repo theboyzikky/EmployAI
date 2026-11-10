@@ -1,3 +1,4 @@
+import "server-only";
 // Upstash Redis over its REST API (plain fetch: no SDK dependency). Every atomic operation is ONE Lua
 // script, the exact twin of the synchronous block in MemoryKv (tests/kv-contract.test.ts runs the same
 // cases against both). Errors, timeouts and non-2xx answers throw KvUnavailableError: no fallback.

@@ -1,3 +1,4 @@
+import "server-only";
 // Operator switches for the hosted demo, set in the shared store (no redeploy needed):
 //   ops:testnet_paused  → no new testnet signature or broadcast (runs abort cleanly; nothing is sent)
 //   ops:ai_paused       → no live AI call (discovery answers AI_UNAVAILABLE)

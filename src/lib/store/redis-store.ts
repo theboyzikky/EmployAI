@@ -1,3 +1,4 @@
+import "server-only";
 // The hosted demo's store: one versioned document per business in the shared Kv (Upstash Redis), plus
 // one shared document (the blocklist) and two indexes (owner → businesses, public-ledger slug → business).
 //

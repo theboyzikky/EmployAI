@@ -1,3 +1,4 @@
+import "server-only";
 // Which shared store this server uses (one per process, on globalThis):
 //  - Upstash Redis when its REST URL and token are set (the hosted demo; Vercel's Upstash integration
 //    sets KV_REST_API_URL / KV_REST_API_TOKEN or UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN);

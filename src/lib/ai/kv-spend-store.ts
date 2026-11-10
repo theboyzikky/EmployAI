@@ -1,3 +1,4 @@
+import "server-only";
 // The hosted demo's AI spending ledger: shared by every server instance, survives restarts. One Redis
 // script does check-and-reserve atomically (src/lib/kv: spendReserve), so concurrent calls on separate
 // instances can't together pass the daily cap or the call ceiling. Amounts are whole nano-USD;

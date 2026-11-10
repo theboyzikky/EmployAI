@@ -1,3 +1,4 @@
+import "server-only";
 // A lease on a shared lock: a unique token, a TTL, automatic renewal while the work runs, and a fence.
 // Writes made under the fence commit only while this lease still holds the lock (src/lib/kv: the same
 // atomic step checks the token and the time left), so a holder that stalled past its TTL, or lost the

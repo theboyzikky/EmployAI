@@ -467,3 +467,38 @@ The later kill-switch points (after approval, after signing, after broadcast) ar
 - `https://testnet.near.rocks/tx/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP` (NEAR Rocks, by FastNear) shows the B3 transaction: signer `finance-agent.employai-demo.testnet`, key `8qgG…`, nonce 276931238000004, `request_payment` with the B3 request ID, the 0.031 NEAR transfer to supplier-1, `on_payout` returning `true`, and the `payout_requested` and `payout_completed` events.
 - The official NEAR explorer selector (`explorer.testnet.near.org/transactions/<hash>`) links to `https://testnet.nearblocks.io/txns/<hash>`, the format the app used. NearBlocks serves a Cloudflare bot check (HTTP 403) to automated browsers, so it wasn't opened here, and no attempt was made to get past it.
 - The app now links to NEAR Rocks first and NearBlocks second.
+
+## S2 · Second supplier payment with the rotated key (owner-approved in the app 2026-11-10; **PASS**, independently verified read-only)
+
+Earlier S2 approvals (runs `9c970639…`, `a38bfed5…` and `b4c50350…`) expired unused; each run ended `rejected` with no payment attempt and nothing signed. This one was approved.
+
+**Pre-checks (read-only, 12:57 UTC):**
+- the restricted key `3WYMJ…` was exactly `FunctionCall(treasury, ["request_payment"], allowance null)`, nonce 276,971,889,000,000;
+- policy 0.1 / 0.25 NEAR, not paused, sales off, code hash `HvewFdJa…`;
+- 0 NEAR spent today; supplier-1 on the allowlist.
+
+Batch **B3-S2c** (`da943574-9946-428e-bdfc-1c17895342a1`): 1 payment, max 0.031 NEAR, armed 12:57:43 UTC for 60 minutes; it replaced B3-S2b, which was close to expiring. Security check: **ALLOW**, no reasons.
+
+| Item | Value |
+|---|---|
+| Run / approval | `50c6a361-23b7-4d14-aa55-a336129f1f74` / `140d1f32-7316-4188-963d-a68e1ca4844a` (owner approved 13:00:29 UTC) |
+| Transaction | `6BV9JEX2bHkEyyYCbFjyuDJtTca8jLekrRP9TA5JRUC4`, final status **FINAL**, `SuccessValue` = `true` |
+| Signer / key / nonce | `finance-agent.employai-demo.testnet` / `ed25519:3WYMJJAsybvTPJHDgeys77PMHARoKKYyFd2iVDBfuRGx` (the rotated restricted key) / 276971889000001 |
+| Call | `treasury.employai-demo.testnet.request_payment`, deposit 0, prepaid gas 100 Tgas, args `{request_id: "50c6a361-…:payment", recipient: "supplier-1.employai-demo.testnet", amount: "31000000000000000000000"}` |
+| Receipts | treasury `payout_requested` → transfer to supplier-1 succeeded → `on_payout` returned `true` with `payout_completed` (request, recipient, amount and agent match) |
+| Contract record | `get_request` = `Paid`, attempts 1, requested at block 277,070,726, settled at block 277,070,728 |
+| Daily total | `get_spent_today` = 0.031 of 0.25 NEAR (day 20767) |
+| App | attempt `confirmed` (one broadcast); run `completed`; payment panel "Paid · verified on NEAR testnet"; ledger row "NEAR testnet · real transaction" |
+| Gas burnt | 0.0004777822616296 NEAR (budget 0.01) |
+
+**Timeline (UTC):** approved 13:00:29 → Phase A 13:00:29 → signed and written ahead 13:00:32 → sent and verified 13:00:37 → run completed 13:00:37.
+
+**Balances (read-only, before 12:57 → after 13:01):**
+
+| Account | Before | After | Change |
+|---|---|---|---|
+| treasury | 2.467538709076408000000002 | 2.436538709076408000000002 | **−0.031 NEAR exactly** |
+| supplier-1 | 0.131 | 0.162 | **+0.031 NEAR** |
+| finance-agent | 0.4989289710098057 | 0.4984511887481761 | −0.0004777822616296 NEAR (= the gas burnt) |
+
+Explorer: `https://testnet.near.rocks/tx/6BV9JEX2bHkEyyYCbFjyuDJtTca8jLekrRP9TA5JRUC4`. This proves the rotated key end to end: the old key is revoked, and the new restricted key paid exactly once through the app.

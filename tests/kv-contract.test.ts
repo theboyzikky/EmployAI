@@ -51,14 +51,19 @@ describe.each(harnesses)("Kv contract: %s", (_name, make) => {
     const { kv, advance } = make();
     expect(await kv.lockAcquire("L", "tok-A", 1_500)).toBe(true);
     const fence = { key: "L", token: "tok-A", minTtlMs: 200 };
-    expect(await kv.cas({ docs: [{ key: "f", expect: 0, value: "1" }], ttlMs: 60_000, fence })).toBe("ok");
-    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "x" }], ttlMs: 60_000, fence: { ...fence, token: "tok-B" } })).toBe("fence_lost");
-    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "x" }], ttlMs: 60_000, fence: { ...fence, minTtlMs: 10_000 } })).toBe("fence_lost");
+    expect(await kv.cas({ docs: [{ key: "f", expect: 0, value: "1" }], ttlMs: 60_000, fences: [fence] })).toBe("ok");
+    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "x" }], ttlMs: 60_000, fences: [{ ...fence, token: "tok-B" }] })).toBe("fence_lost");
+    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "x" }], ttlMs: 60_000, fences: [{ ...fence, minTtlMs: 10_000 }] })).toBe("fence_lost");
     await advance(1_700);  // A's lock expired; B takes it
-    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "late" }], ttlMs: 60_000, fence })).toBe("fence_lost");
+    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "late" }], ttlMs: 60_000, fences: [fence] })).toBe("fence_lost");
     expect(await kv.lockAcquire("L", "tok-B", 5_000)).toBe(true);
-    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "late" }], ttlMs: 60_000, fence })).toBe("fence_lost");
+    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "late" }], ttlMs: 60_000, fences: [fence] })).toBe("fence_lost");
     expect(await kv.get("f")).toBe("1");
+    // Two fences: both must hold.
+    expect(await kv.lockAcquire("L2", "tok-C", 5_000)).toBe(true);
+    const fB = { key: "L", token: "tok-B", minTtlMs: 0 }, fC = { key: "L2", token: "tok-C", minTtlMs: 0 };
+    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "two" }], ttlMs: 60_000, fences: [fB, { ...fC, token: "nope" }] })).toBe("fence_lost");
+    expect(await kv.cas({ docs: [{ key: "f", expect: 1, value: "two" }], ttlMs: 60_000, fences: [fB, fC] })).toBe("ok");
   });
 
   test("side writes: setnx claims or blocks the whole commit; del_if; sadd; max keeps the larger integer", async () => {
@@ -85,6 +90,11 @@ describe.each(harnesses)("Kv contract: %s", (_name, make) => {
     expect(await kv.pttl("e")).toBeGreaterThan(0);
     await advance(1_300);
     expect(await kv.mget(["e", "e:v"])).toEqual([null, null]);
+    // A per-document ttl overrides the request's (null = never expires).
+    await kv.cas({ docs: [{ key: "keep", expect: 0, value: "k", ttlMs: null }, { key: "short", expect: 0, value: "s" }], ttlMs: 500 });
+    await advance(700);
+    expect(await kv.mget(["keep", "short"])).toEqual(["k", null]);
+    expect(await kv.pttl("keep")).toBe(-1);
     // An expired doc starts again from version 0.
     expect(await kv.cas({ docs: [{ key: "e", expect: 0, value: "again" }], ttlMs: 1_000 })).toBe("ok");
   });

@@ -54,7 +54,7 @@ const pendingOf = (a: PaymentAttempt): PendingPaymentView => ({
 });
 
 export function buildLedgerView(businessId: string): Promise<LedgerView> {
-  return runRead(tx => {
+  return runRead(businessId, tx => {
     const ledger = tx.ledger(businessId).slice().sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
     const rows = ledger.map(rowOf);
     const pending = tx.attempts(businessId).filter(a => !TERMINAL_ATTEMPT_STATUSES.includes(a.status)).map(pendingOf);

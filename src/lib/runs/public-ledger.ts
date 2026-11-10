@@ -7,6 +7,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { nearText } from "./agents";
 import { explorerLinks } from "./payment-executor";
+import { discoveryRepository } from "@/lib/discovery/store";
 import { runRead, runTransact } from "./repo";
 
 export type PublicLedgerView = {
@@ -18,7 +19,7 @@ export type PublicLedgerView = {
 const SLUG = /^[A-Za-z0-9_-]{22,64}$/;
 
 export async function setLedgerPublic(businessId: string, publish: boolean): Promise<string | null> {
-  return runTransact(tx => {
+  return runTransact(businessId, tx => {
     const b = tx.business(businessId);
     if (!b) throw new Error("NOT_FOUND");
     // A new slug every time it's published, so an unpublished link never comes back.
@@ -31,8 +32,10 @@ export async function setLedgerPublic(businessId: string, publish: boolean): Pro
 
 export async function publicLedgerBySlug(slug: string): Promise<PublicLedgerView | null> {
   if (!SLUG.test(slug)) return null;
-  return runRead(tx => {
-    const b = tx.businessByLedgerSlug(slug);
+  const businessId = await discoveryRepository().businessIdForLedgerSlug(slug);   // the slug index
+  if (!businessId) return null;
+  return runRead(businessId, tx => {
+    const b = tx.businessByLedgerSlug(slug);   // re-checked against the business itself (the index is only a pointer)
     if (!b) return null;
     const paid = tx.ledger(b.id).filter(l => l.mode === "testnet" && l.tx_status === "confirmed" && !!l.tx_hash)
       .sort((x, y) => y.occurred_at.localeCompare(x.occurred_at));

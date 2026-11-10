@@ -51,18 +51,14 @@ export class MemoryKv implements Kv {
   /** The commit itself (synchronous, atomic). Also used directly by the local file store for fences. */
   casSync(req: CasRequest): CasResult {
     for (const d of req.docs) if (Number(this.str(`${d.key}:v`) ?? "0") !== d.expect) return "conflict";
-    if (req.fence) {
-      const e = this.live(req.fence.key);
-      if (!e || e.v !== req.fence.token) return "fence_lost";
-      const left = e.exp === null ? Infinity : e.exp - this.now();
-      if (left < req.fence.minTtlMs) return "fence_lost";
-    }
+    for (const f of req.fences ?? []) if (!this.holdsSync(f.key, f.token, f.minTtlMs)) return "fence_lost";
     const side = req.side ?? [];
     for (const s of side) if (s.op === "setnx") { const cur = this.str(s.key); if (cur !== null && cur !== s.value) return "side_conflict"; }
     for (const d of req.docs) {
       if (d.value === null) continue;
-      this.put(d.key, d.value, req.ttlMs);
-      this.put(`${d.key}:v`, String(d.expect + 1), req.ttlMs);
+      const ttl = d.ttlMs === undefined ? req.ttlMs : d.ttlMs;
+      this.put(d.key, d.value, ttl);
+      this.put(`${d.key}:v`, String(d.expect + 1), ttl);
     }
     for (const s of side) {
       if (s.op === "setnx") this.put(s.key, s.value, req.ttlMs);
@@ -127,4 +123,8 @@ export class MemoryKv implements Kv {
 
   /** Tests: every key (expired ones dropped). */
   keys(): string[] { return [...this.data.keys()].filter(k => this.live(k)); }
+  /** Tests: every live key and value, in a stable order (to prove that reads write nothing). */
+  dump(): string {
+    return JSON.stringify(this.keys().sort().map(k => { const v = this.data.get(k)!.v; return [k, typeof v === "string" ? v : [...v].sort()]; }));
+  }
 }

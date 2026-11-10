@@ -11,7 +11,7 @@ afterEach(() => setDiscoveryRepository(null));
 async function withRows() {
   const t = tempStore();
   const { businessId } = await readyRestaurant(t.store);
-  await runTransact(tx => {
+  await runTransact(businessId, tx => {
     tx.appendLedger({ business_id: businessId, run_id: "run-sim", type: "supplier_payout", mode: "test_run", amount: 42_780, unit: "ngn_illustrative", counterparty: "Lagos Fresh Foods (demo)", agent_key: "finance", tx_hash: null, tx_status: "simulated", request_id: "run-sim:payment", label: "Test run — no transaction" });
     const base = { business_id: businessId, type: "supplier_payout" as const, mode: "testnet" as const, unit: "yoctoNEAR" as const, amount_ngn_business: 42_780, supplier_name: "Lagos Fresh Foods (demo)", agent_key: "finance" as const, batch_id: "B3", explorer_url: null };
     tx.appendLedger({ ...base, run_id: "run-paid", amount: "31000000000000000000000", counterparty: "supplier-1.employai-demo.testnet", tx_hash: "AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP", tx_status: "confirmed", request_id: "run-paid:payment", attempt_id: "a1", label: "NEAR testnet · real transaction" });

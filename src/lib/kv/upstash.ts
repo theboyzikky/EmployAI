@@ -5,37 +5,41 @@ import { KvUnavailableError, type CasRequest, type CasResult, type Kv, type Spen
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
-// KEYS: doc_1, doc_1:v, …, doc_n, doc_n:v, [fence], side keys…
-// ARGV: n, ttlMs, hasFence, fenceToken, fenceMinTtl, nSide, (expect, hasValue, value) × n, (op, arg) × nSide
+// KEYS: doc_1, doc_1:v, …, doc_n, doc_n:v, fence keys…, side keys…
+// ARGV: n, ttlMs, nFences, nSide, (expect, hasValue, value, docTtl) × n, (token, minTtl) × nFences, (op, arg) × nSide
+// docTtl: "" = the request's ttlMs, "0" = no expiry, otherwise milliseconds.
 const CAS = `
-local n = tonumber(ARGV[1]); local ttl = tonumber(ARGV[2]); local hasFence = ARGV[3] == "1"; local nSide = tonumber(ARGV[6])
-local a = 7
+local n = tonumber(ARGV[1]); local ttl = tonumber(ARGV[2]); local nF = tonumber(ARGV[3]); local nSide = tonumber(ARGV[4])
+local a = 5
 for i = 1, n do
   local cur = tonumber(redis.call("GET", KEYS[2 * i]) or "0")
-  if cur ~= tonumber(ARGV[a + (i - 1) * 3]) then return "conflict" end
+  if cur ~= tonumber(ARGV[a + (i - 1) * 4]) then return "conflict" end
 end
-local k = 2 * n + 1
-if hasFence then
-  if redis.call("GET", KEYS[k]) ~= ARGV[4] then return "fence_lost" end
-  local left = redis.call("PTTL", KEYS[k])
-  if left ~= -1 and left < tonumber(ARGV[5]) then return "fence_lost" end
-  k = k + 1
+local fa = a + n * 4
+for f = 1, nF do
+  local fk = KEYS[2 * n + f]
+  if redis.call("GET", fk) ~= ARGV[fa + (f - 1) * 2] then return "fence_lost" end
+  local left = redis.call("PTTL", fk)
+  if left ~= -1 and left < tonumber(ARGV[fa + (f - 1) * 2 + 1]) then return "fence_lost" end
 end
-local sa = a + n * 3
+local k = 2 * n + nF + 1
+local sa = fa + nF * 2
 for j = 1, nSide do
   if ARGV[sa + (j - 1) * 2] == "setnx" then
     local cur = redis.call("GET", KEYS[k + j - 1])
     if cur and cur ~= ARGV[sa + (j - 1) * 2 + 1] then return "side_conflict" end
   end
 end
-local function put(key, val)
-  if ttl > 0 then redis.call("SET", key, val, "PX", ttl) else redis.call("SET", key, val) end
+local function put(key, val, t)
+  if t > 0 then redis.call("SET", key, val, "PX", t) else redis.call("SET", key, val) end
 end
 for i = 1, n do
-  local b = a + (i - 1) * 3
+  local b = a + (i - 1) * 4
   if ARGV[b + 1] == "1" then
-    put(KEYS[2 * i - 1], ARGV[b + 2])
-    put(KEYS[2 * i], tostring(tonumber(ARGV[b]) + 1))
+    local t = ttl
+    if ARGV[b + 3] ~= "" then t = tonumber(ARGV[b + 3]) end
+    put(KEYS[2 * i - 1], ARGV[b + 2], t)
+    put(KEYS[2 * i], tostring(tonumber(ARGV[b]) + 1), t)
   end
 end
 local function greater(x, y)
@@ -45,7 +49,7 @@ local function greater(x, y)
 end
 for j = 1, nSide do
   local op = ARGV[sa + (j - 1) * 2]; local arg = ARGV[sa + (j - 1) * 2 + 1]; local key = KEYS[k + j - 1]
-  if op == "setnx" then put(key, arg)
+  if op == "setnx" then put(key, arg, ttl)
   elseif op == "del_if" then if redis.call("GET", key) == arg then redis.call("DEL", key) end
   elseif op == "sadd" then redis.call("SADD", key, arg); if ttl > 0 then redis.call("PEXPIRE", key, ttl) end
   elseif op == "max" then
@@ -129,11 +133,13 @@ export class UpstashKv implements Kv {
   async cas(req: CasRequest): Promise<CasResult> {
     const keys: string[] = [];
     for (const d of req.docs) keys.push(d.key, `${d.key}:v`);
-    if (req.fence) keys.push(req.fence.key);
+    const fences = req.fences ?? [];
+    for (const f of fences) keys.push(f.key);
     const side = req.side ?? [];
     for (const s of side) keys.push(s.key);
-    const args: Array<string | number> = [req.docs.length, req.ttlMs ?? 0, req.fence ? 1 : 0, req.fence?.token ?? "", req.fence?.minTtlMs ?? 0, side.length];
-    for (const d of req.docs) args.push(d.expect, d.value === null ? 0 : 1, d.value ?? "");
+    const args: Array<string | number> = [req.docs.length, req.ttlMs ?? 0, fences.length, side.length];
+    for (const d of req.docs) args.push(d.expect, d.value === null ? 0 : 1, d.value ?? "", d.ttlMs === undefined ? "" : d.ttlMs ?? 0);
+    for (const f of fences) args.push(f.token, f.minTtlMs);
     for (const s of side) args.push(s.op, s.op === "sadd" ? s.member : s.value);
     const r = await this.evalScript(CAS, keys, args);
     if (r === "ok" || r === "conflict" || r === "fence_lost" || r === "side_conflict") return r;

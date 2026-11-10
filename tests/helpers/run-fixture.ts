@@ -7,7 +7,8 @@ import type { CapabilityKey } from "@/lib/catalogue/catalogue";
 import { proposeTeam } from "@/lib/catalogue/propose";
 import { emptyCaseFile } from "@/lib/discovery/casefile";
 import type { Analysis } from "@/lib/discovery/profile";
-import { FileDevStore, setDiscoveryRepository, type WorkflowRecord } from "@/lib/discovery/store";
+import { setDiscoveryRepository, type DiscoveryRepository, type WorkflowRecord } from "@/lib/discovery/store";
+import { makeTestStore } from "./store";
 import { restaurantDemoScenario, RESTAURANT_INDUSTRY } from "@/lib/workflows/demo-data";
 import { DEFAULT_PARAMS, generateRestaurantWorkflow } from "@/lib/workflows/generate";
 import type { Params } from "@/lib/workflows/schema";
@@ -17,7 +18,7 @@ import { teamOf } from "@/lib/runs/eligibility";
 
 export const tempStore = () => {
   const dir = mkdtempSync(path.join(tmpdir(), "employai-m4-"));
-  const store = new FileDevStore(dir);
+  const store = makeTestStore(dir);
   setDiscoveryRepository(store);
   return { dir, store, file: path.join(dir, "dev-store.json") };
 };
@@ -45,7 +46,7 @@ export type FixtureOptions = {
 };
 
 /** A restaurant with a confirmed M3.5 discovery, an approved team and an approved, fingerprinted workflow. */
-export async function readyRestaurant(store: FileDevStore, opts: FixtureOptions = {}) {
+export async function readyRestaurant(store: DiscoveryRepository, opts: FixtureOptions = {}) {
   const b = await store.createBusiness({ ownerHash: opts.ownerHash ?? "owner-hash-fixture", initialMessage: "I run a restaurant called Mama Nkechi's Kitchen." });
   const now = new Date().toISOString();
   await store.updateBusiness(b.id, {

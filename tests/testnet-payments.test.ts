@@ -71,7 +71,7 @@ async function setup(batch: { payments?: number; near?: string } | null = {}) {
 }
 const startTestnet = (b: string, w: string, scenario: ScenarioKey = "standard") =>
   startRun(b, { workflowId: w, scenario, idempotencyKey: `tn-${++keySeq}`, mode: "testnet", confirmRealTransactions: true });
-const state = (b: string, runId: string) => runRead(tx => ({
+const state = (b: string, runId: string) => runRead(b, tx => ({
   run: tx.run(b, runId)!, steps: tx.steps(runId), decisions: tx.decisions(b).filter(d => d.run_id === runId), approvals: tx.approvals(b).filter(a => a.run_id === runId),
   attempts: tx.attempts(b).filter(a => a.run_id === runId), ledger: tx.ledger(b).filter(l => l.run_id === runId), events: tx.events(b).filter(e => e.correlation_id === runId), batch: tx.batches(b).at(-1),
 }));
@@ -224,7 +224,7 @@ describe("approval: always required, exact, once", () => {
     const { businessId, workflow } = await setup();
     const { runId } = await startTestnet(businessId, workflow.id);
     const s = await toApproval(businessId, runId);
-    await runTransact(tx => tx.disarmBatches(businessId, "TEST"));
+    await runTransact(businessId, tx => tx.disarmBatches(businessId, "TEST"));
     await expect(decideApproval(businessId, s.approvals[0].id, "approve")).rejects.toMatchObject({ code: "BATCH_NOT_ARMED" });
     const end = await state(businessId, runId);
     expect(end.approvals[0].status).toBe("invalidated");
@@ -237,7 +237,7 @@ describe("approval: always required, exact, once", () => {
     const { businessId, workflow } = await setup();
     const { runId } = await startTestnet(businessId, workflow.id);
     const s = await toApproval(businessId, runId);
-    await runTransact(tx => {
+    await runTransact(businessId, tx => {
       const r = tx.run(businessId, runId)!;
       const reqs = r.records.payment_requests as Array<Record<string, unknown>>;
       reqs[0].amount_yocto = "90000000000000000000000";            // tampered after approval was requested
@@ -496,7 +496,7 @@ describe("restart recovery: a persisted signature is never signed again", () => 
     fake.calls.sign = 0;
     const id = (await state(businessId, runId)).attempts[0].id;
     // The crashed process left the attempt mid-way with a lease that has expired.
-    await runTransact(tx => tx.patchAttempt(businessId, id, ["prepared"], {
+    await runTransact(businessId, tx => tx.patchAttempt(businessId, id, ["prepared"], {
       status, lease_owner: "dead-process", lease_expires_at: "2000-01-01T00:00:00.000Z", pre_sign_errors: 0,
       ...(status !== "signing" ? { tx_hash: "tx-persisted", signed_tx_b64: "bytes-persisted", nonce: "276931238000009", signed_block_height: 1000, validity_period_blocks: 86400, expires_after_height: 87400 } : {}),
       ...over,
@@ -575,7 +575,7 @@ describe("kill switch and stop (§14)", () => {
     f.chain.sign = async () => ({ ok: false, code: "CHAIN_UNAVAILABLE", detail: "x", transient: true });
     await advanceRun(businessId, runId);                                // Phase A done, signing deferred
     const id = (await state(businessId, runId)).attempts[0].id;
-    await runTransact(tx => tx.patchAttempt(businessId, id, ["prepared"], { status: "signed", tx_hash: "tx-w", signed_tx_b64: "bytes-w", signed_block_height: 1, validity_period_blocks: 86400 }));
+    await runTransact(businessId, tx => tx.patchAttempt(businessId, id, ["prepared"], { status: "signed", tx_hash: "tx-w", signed_tx_b64: "bytes-w", signed_block_height: 1, validity_period_blocks: 86400 }));
     await setKillSwitch(businessId, true);
     await advanceRun(businessId, runId).catch(() => undefined);
     const s = await state(businessId, runId);
@@ -620,7 +620,7 @@ describe("concurrency and the views", () => {
     await approved(businessId, runId);
     await toEnd(businessId, runId);
     // A request that was PAID can never get another attempt (one active-or-paid attempt per request_id).
-    await expect(runTransact(tx => tx.insertAttempt({ ...tx.attempts(businessId)[0], status: "prepared" }))).rejects.toThrow("ATTEMPT_ALREADY_ACTIVE");
+    await expect(runTransact(businessId, tx => tx.insertAttempt({ ...tx.attempts(businessId)[0], status: "prepared" }))).rejects.toThrow("ATTEMPT_ALREADY_ACTIVE");
     const s = await state(businessId, runId);
     expect(s.approvals.filter(a => a.consumed_at)).toHaveLength(1);
   });

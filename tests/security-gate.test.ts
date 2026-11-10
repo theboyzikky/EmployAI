@@ -119,26 +119,26 @@ describe("authorisation · created from the decision, hash-bound, used once, exp
     const { store } = tempStore();
     const { businessId } = await readyRestaurant(store);
     const hash = actionHash({ ...base, businessId });
-    const mk = (status: "pending" | "approved", expires: string) => runTransact(tx => tx.insertApproval({
+    const mk = (status: "pending" | "approved", expires: string) => runTransact(businessId, tx => tx.insertApproval({
       business_id: businessId, run_id: "r", decision_id: "d", request_id: "q", action_hash: hash, amount_ngn: 42_780, beneficiary: base.beneficiary,
       reason_codes: [], status, auto_approved: status === "approved", expires_at: expires, decided_at: null, decided_by: null, consumed_at: null, invalidated_reason: null,
     }));
     const future = new Date(Date.now() + 60_000).toISOString(), past = new Date(Date.now() - 1).toISOString();
     const ok = await mk("approved", future);
-    expect(await runTransact(tx => tx.consumeApproval(businessId, ok.id, "wrong-hash"))).toBe(false);
-    expect(await runTransact(tx => tx.consumeApproval(businessId, ok.id, hash))).toBe(true);
-    expect(await runTransact(tx => tx.consumeApproval(businessId, ok.id, hash))).toBe(false);          // once only
+    expect(await runTransact(businessId, tx => tx.consumeApproval(businessId, ok.id, "wrong-hash"))).toBe(false);
+    expect(await runTransact(businessId, tx => tx.consumeApproval(businessId, ok.id, hash))).toBe(true);
+    expect(await runTransact(businessId, tx => tx.consumeApproval(businessId, ok.id, hash))).toBe(false);          // once only
     const pending = await mk("pending", future);
-    expect(await runTransact(tx => tx.consumeApproval(businessId, pending.id, hash))).toBe(false);
+    expect(await runTransact(businessId, tx => tx.consumeApproval(businessId, pending.id, hash))).toBe(false);
     const expired = await mk("approved", past);
-    expect(await runTransact(tx => tx.consumeApproval(businessId, expired.id, hash))).toBe(false);
+    expect(await runTransact(businessId, tx => tx.consumeApproval(businessId, expired.id, hash))).toBe(false);
     const inv = await mk("approved", future);
-    await runTransact(tx => tx.patchApproval(businessId, inv.id, ["approved", "pending"], { status: "invalidated", invalidated_reason: "KILL_SWITCH_ACTIVE" }));
-    expect(await runTransact(tx => tx.consumeApproval(businessId, inv.id, hash))).toBe(false);
+    await runTransact(businessId, tx => tx.patchApproval(businessId, inv.id, ["approved", "pending"], { status: "invalidated", invalidated_reason: "KILL_SWITCH_ACTIVE" }));
+    expect(await runTransact(businessId, tx => tx.consumeApproval(businessId, inv.id, hash))).toBe(false);
     // A decision can't be made twice (compare-and-set on the status).
     const p2 = await mk("pending", future);
-    expect(await runTransact(tx => tx.patchApproval(businessId, p2.id, ["pending"], { status: "approved", decided_by: "owner" }))).toBe(true);
-    expect(await runTransact(tx => tx.patchApproval(businessId, p2.id, ["pending"], { status: "rejected", decided_by: "owner" }))).toBe(false);
-    expect(await runRead(tx => tx.approvals(businessId).find(a => a.id === p2.id)!.status)).toBe("approved");
+    expect(await runTransact(businessId, tx => tx.patchApproval(businessId, p2.id, ["pending"], { status: "approved", decided_by: "owner" }))).toBe(true);
+    expect(await runTransact(businessId, tx => tx.patchApproval(businessId, p2.id, ["pending"], { status: "rejected", decided_by: "owner" }))).toBe(false);
+    expect(await runRead(businessId, tx => tx.approvals(businessId).find(a => a.id === p2.id)!.status)).toBe("approved");
   });
 });

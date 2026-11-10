@@ -8,8 +8,11 @@ export class KvUnavailableError extends Error {
   constructor(message: string) { super(message); this.name = "KvUnavailableError"; }
 }
 
-/** A versioned document in a compare-and-set commit. `value: null` = read-validate only (no write). */
-export type CasDoc = { key: string; expect: number; value: string | null };
+/**
+ * A versioned document in a compare-and-set commit. `value: null` = read-validate only (no write).
+ * `ttlMs` overrides the request's expiry for this document (null = never expires).
+ */
+export type CasDoc = { key: string; expect: number; value: string | null; ttlMs?: number | null };
 
 /**
  * Extra writes applied in the same atomic step, only if every document version and the fence match.
@@ -24,10 +27,10 @@ export type SideOp =
   | { op: "sadd"; key: string; member: string }
   | { op: "max"; key: string; value: string };
 
-/** The commit applies only while `key` still holds `token` with at least `minTtlMs` left (fencing). */
+/** The commit applies only while `key` still holds `token` with at least `minTtlMs` left (fencing). Every fence given must hold. */
 export type Fence = { key: string; token: string; minTtlMs: number };
 
-export type CasRequest = { docs: CasDoc[]; ttlMs: number | null; fence?: Fence | null; side?: SideOp[] };
+export type CasRequest = { docs: CasDoc[]; ttlMs: number | null; fences?: Fence[]; side?: SideOp[] };
 export type CasResult = "ok" | "conflict" | "fence_lost" | "side_conflict";
 
 export type SpendReserve = { spentKey: string; reservedKey: string; callsKey: string; worstNano: number; capNano: number; maxCalls: number; ttlMs: number };

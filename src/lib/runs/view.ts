@@ -47,7 +47,7 @@ function addressesOf(b: BusinessRecord): AddressedItem[] {
 }
 
 export async function buildRunsView(b: BusinessRecord): Promise<RunsView> {
-  return runRead(tx => {
+  return runRead(b.id, tx => {
     const business = tx.business(b.id)!;
     const workflows = tx.workflows(b.id);
     const current = workflows.filter(w => w.status === "approved").sort((x, y) => y.version - x.version)[0] ?? null;
@@ -80,7 +80,7 @@ export async function buildRunsView(b: BusinessRecord): Promise<RunsView> {
 }
 
 export async function buildRunView(b: BusinessRecord, runId: string): Promise<RunView | null> {
-  return runRead(tx => runViewFrom(tx, b.id, runId));
+  return runRead(b.id, tx => runViewFrom(tx, b.id, runId));
 }
 
 function runViewFrom(tx: RunTx, businessId: string, runId: string): RunView | null {

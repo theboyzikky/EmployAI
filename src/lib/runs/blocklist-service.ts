@@ -21,7 +21,7 @@ function viewOf(r: BlocklistReport, businessId: string, nowIso: string): Blockli
 }
 
 export function listBlocklist(businessId: string): Promise<BlocklistEntryView[]> {
-  return runRead(tx => [...BLOCKLIST_FIXTURES, ...tx.blocklistReports()].map(r => viewOf(r, businessId, tx.now)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+  return runRead(businessId, tx => [...BLOCKLIST_FIXTURES, ...tx.blocklistReports()].map(r => viewOf(r, businessId, tx.now)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
 }
 
 function validate(input: { accountId: string; reason: string; evidence: { type: EvidenceType; ref: string } }) {
@@ -40,7 +40,7 @@ function validate(input: { accountId: string; reason: string; evidence: { type: 
 /** Report an account with evidence. Idempotent per workspace and account while the report is open. */
 export async function reportAccount(businessId: string, input: { accountId: string; reason: string; evidence: { type: EvidenceType; ref: string } }): Promise<{ entry: BlocklistEntryView; created: boolean }> {
   const v = validate(input);
-  const out = await runTransact(tx => {
+  const out = await runTransact(businessId, tx => {
     if (!tx.business(businessId)) return { err: ["NOT_FOUND", 404, "Not found."] as const };
     const mine = tx.blocklistReports().filter(r => r.reported_by_business_id === businessId);
     const open = mine.find(r => r.account_id === v.accountId && effectiveStatus(r, tx.now) === "reported");

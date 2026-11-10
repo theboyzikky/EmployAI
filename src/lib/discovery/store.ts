@@ -12,6 +12,12 @@ import type { DemoScenario } from "@/lib/workflows/demo-data";
 import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workflows/schema";
 import type { BlocklistReport } from "@/lib/security/blocklist";
 import type { ActivityEvent, ApprovalRecord, LedgerRecord, PaymentAttempt, RunRecord, RunStepRecord, SecurityDecisionRecord, TestnetBatch } from "@/lib/runs/types";
+import { getKv, isSharedStore, MemoryKv } from "@/lib/kv";
+import type { Fence, SideOp } from "@/lib/kv/types";
+import { activeFences, FenceLostError } from "@/lib/store/fence-context";
+import { storeOps, type AgentPatch, type BusinessPatch, type WorkflowPatch } from "@/lib/store/ops";
+import { assembleView, extractBusiness, extractShared, mergeIntoFull, splitView } from "@/lib/store/partition";
+import { RedisStore } from "@/lib/store/redis-store";
 
 /*
  * Records mirror the APPROVED database design (docs/architecture/03-database-design.md), so the
@@ -107,19 +113,27 @@ export interface DiscoveryRepository {
   updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at" | "approval_fingerprint" | "fingerprint_alg">>): Promise<WorkflowRecord>;
   deleteWorkflow(businessId: string, workflowId: string): Promise<void>;
   /**
-   * M4: one read-modify-write on the LATEST stored state, through the same serialised write queue as
-   * every other write. `fn` must be synchronous; whatever it changes is written atomically.
+   * M4: one read-modify-write on the LATEST stored state of ONE business (plus the shared partition:
+   * the blocklist), atomic and serialised against every other write to that business. `fn` must be
+   * synchronous and may run more than once (the shared store retries on a version conflict), so it
+   * must not have side effects outside the state it is given. Touching another business is a
+   * ScopeViolation. `opts.fences` (and any fence of the surrounding lock) must still hold at commit,
+   * and `opts.side` writes are applied in the same atomic step.
    */
-  transact<T>(fn: (s: DevState) => T): Promise<T>;
-  /** M4: read-only access to a fresh copy of the stored state (changes to it are never written). */
-  readState<T>(fn: (s: DevState) => T): Promise<T>;
+  transact<T>(businessId: string, fn: (s: DevState) => T, opts?: TxOptions): Promise<T>;
+  /** M4: read-only access to a fresh copy of one business's state (changes to it are never written). */
+  readState<T>(businessId: string, fn: (s: DevState) => T): Promise<T>;
+  /** M7: the business whose public ledger has this slug, if any (the slug index). */
+  businessIdForLedgerSlug(slug: string): Promise<string | null>;
 }
+
+export type TxOptions = { fences?: Fence[]; side?: SideOp[] };
 
 export const OWNER_COOKIE = "eai_owner";
 export const newOwnerToken = () => randomBytes(32).toString("base64url");
 export const hashOwnerToken = (token: string) => createHash("sha256").update(token).digest("hex");
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-export const isSessionId = (id: string) => UUID_RE.test(id);
+export { isSessionId } from "@/lib/store/ops";
+import { isSessionId } from "@/lib/store/ops";
 
 export type DevState = {
   version: 2;
@@ -148,9 +162,8 @@ export type DevState = {
  * LOCAL DEVELOPMENT STORE — NOT PRODUCTION PERSISTENCE.
  * One JSON file in .data/ (git-ignored), atomic replace on every write, writes serialised within this
  * process. SINGLE-PROCESS ONLY: no multi-instance or multi-process safety, no backups, no row-level
- * security. M4 relies on this queue for control requests and compare-and-set writes (plan §5.6); those
- * guarantees hold only inside one server process. It exists only until the
- * Supabase project is created, when a Supabase implementation of DiscoveryRepository replaces it.
+ * security. The hosted demo uses the shared store instead (src/lib/store/redis-store.ts); both keep
+ * the same business scoping, fences and side writes, so the whole test suite exercises those rules.
  */
 export class FileDevStore implements DiscoveryRepository {
   private readonly file: string;
@@ -176,11 +189,21 @@ export class FileDevStore implements DiscoveryRepository {
     await rename(tmp, this.file); // atomic replace
   }
 
-  /** Read-modify-write, serialised within this process. */
-  private mutate<T>(fn: (s: DevState) => T): Promise<T> {
+  /**
+   * Read-modify-write, serialised within this process. Fences (the surrounding lock's, plus `opts`)
+   * are checked and side writes applied against the in-process lock store right before the write,
+   * with no await in between, so a lost lock writes nothing.
+   */
+  private mutate<T>(fn: (s: DevState) => T, opts: TxOptions = {}): Promise<T> {
+    const fences = [...activeFences(), ...(opts.fences ?? [])];
     const run = this.queue.then(async () => {
       const s = await this.read();
       const out = fn(s);
+      if (fences.length || opts.side?.length) {
+        const kv = getKv();
+        if (!(kv instanceof MemoryKv)) throw new Error("FileDevStore fences need the in-process lock store");
+        if (kv.casSync({ docs: [], ttlMs: null, fences, side: opts.side }) !== "ok") throw new FenceLostError();
+      }
       await this.write(s);
       return out;
     });
@@ -195,26 +218,35 @@ export class FileDevStore implements DiscoveryRepository {
 
   createBusiness(input: { ownerHash: string; initialMessage: string }) {
     return this.mutate(s => {
-      const now = new Date().toISOString();
-      const b: BusinessRecord = {
-        id: randomUUID(), owner_hash: input.ownerHash, name: null, business_type: null, status: "discovering",
-        profile: { ...emptyProfile(), case_file: emptyCaseFile("native") }, summary: null, profile_confirmed_at: null, demo: false, scenario_data: null, created_at: now, updated_at: now,
-      };
-      s.businesses[b.id] = b;
-      s.messages[b.id] = [{ id: randomUUID(), business_id: b.id, role: "user", content: input.initialMessage, meta: { kind: "description" }, created_at: now }];
-      s.agents[b.id] = [];
-      return b;
+      const { business, message } = storeOps.newBusiness(input);
+      s.businesses[business.id] = business;
+      s.messages[business.id] = [message];
+      s.agents[business.id] = [];
+      return business;
     });
   }
 
-  /** M4: one serialised read-modify-write on the latest stored state (see the interface). */
-  transact<T>(fn: (s: DevState) => T): Promise<T> {
-    return this.mutate(fn);
+  /** One serialised read-modify-write on ONE business's view of the latest stored state. */
+  transact<T>(businessId: string, fn: (s: DevState) => T, opts: TxOptions = {}): Promise<T> {
+    return this.mutate(full => {
+      const view = assembleView(businessId, extractBusiness(full, businessId), extractShared(full));
+      const out = fn(view);
+      const back = splitView(view, businessId);
+      mergeIntoFull(full, businessId, back.business, back.shared);
+      return out;
+    }, opts);
   }
 
-  /** M4: a fresh, private copy of the stored state; nothing done to it is written. */
-  async readState<T>(fn: (s: DevState) => T): Promise<T> {
-    return fn(await this.snapshot());
+  /** A fresh, private copy of one business's view; nothing done to it is written. */
+  async readState<T>(businessId: string, fn: (s: DevState) => T): Promise<T> {
+    const full = await this.snapshot();
+    return fn(assembleView(businessId, extractBusiness(full, businessId), extractShared(full)));
+  }
+
+  async businessIdForLedgerSlug(slug: string) {
+    if (!slug) return null;
+    const b = Object.values((await this.snapshot()).businesses).find(x => !!x.public_ledger_slug && x.public_ledger_slug === slug);
+    return b?.id ?? null;
   }
 
   async getBusiness(id: string) {
@@ -227,85 +259,16 @@ export class FileDevStore implements DiscoveryRepository {
     return Object.values(s.businesses).filter(b => b.owner_hash === ownerHash).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
 
-  updateBusiness(id: string, patch: Partial<Omit<BusinessRecord, "id" | "owner_hash" | "created_at">>) {
-    return this.mutate(s => {
-      const b = s.businesses[id];
-      if (!b) throw new Error("NOT_FOUND");
-      Object.assign(b, patch, { updated_at: new Date().toISOString() });
-      return b;
-    });
-  }
-
-  async listMessages(businessId: string) {
-    return (await this.snapshot()).messages[businessId] ?? [];
-  }
-
-  appendMessage(msg: Omit<MessageRecord, "id" | "created_at">) {
-    return this.mutate(s => {
-      if (!s.businesses[msg.business_id]) throw new Error("NOT_FOUND");
-      const list = (s.messages[msg.business_id] ??= []);
-      const cid = msg.meta.client_message_id;
-      const dup = cid ? list.find(m => m.meta.client_message_id === cid) : undefined;
-      if (dup) return dup; // retried send: never store the same message twice
-      const rec: MessageRecord = { ...msg, id: randomUUID(), created_at: new Date().toISOString() };
-      list.push(rec);
-      s.businesses[msg.business_id].updated_at = rec.created_at;
-      return rec;
-    });
-  }
-
-  async listAgents(businessId: string) {
-    return (await this.snapshot()).agents[businessId] ?? [];
-  }
-
-  replaceAgents(businessId: string, agents: Array<Omit<AgentRecord, "id" | "business_id" | "created_at">>) {
-    return this.mutate(s => {
-      const now = new Date().toISOString();
-      s.agents[businessId] = agents.map(a => ({ ...a, id: randomUUID(), business_id: businessId, created_at: now }));
-      return s.agents[businessId];
-    });
-  }
-
-  async listWorkflows(businessId: string) {
-    return ((await this.snapshot()).workflows ?? {})[businessId] ?? [];
-  }
-
-  createWorkflow(rec: Omit<WorkflowRecord, "id" | "created_at">) {
-    return this.mutate(s => {
-      if (!s.businesses[rec.business_id]) throw new Error("NOT_FOUND");
-      const all = (s.workflows ??= {});
-      const w: WorkflowRecord = { ...rec, id: randomUUID(), created_at: new Date().toISOString() };
-      (all[rec.business_id] ??= []).push(w);
-      return w;
-    });
-  }
-
-  updateWorkflow(businessId: string, workflowId: string, patch: Partial<Pick<WorkflowRecord, "steps" | "validation" | "status" | "approved_at" | "approval_fingerprint" | "fingerprint_alg">>) {
-    return this.mutate(s => {
-      const w = ((s.workflows ?? {})[businessId] ?? []).find(x => x.id === workflowId);
-      if (!w) throw new Error("NOT_FOUND");
-      Object.assign(w, patch);
-      return w;
-    });
-  }
-
-  deleteWorkflow(businessId: string, workflowId: string) {
-    return this.mutate(s => {
-      const list = (s.workflows ?? {})[businessId] ?? [];
-      const i = list.findIndex(x => x.id === workflowId);
-      if (i < 0) throw new Error("NOT_FOUND");
-      list.splice(i, 1);
-    });
-  }
-
-  updateAgent(businessId: string, key: AgentKey, patch: Partial<Pick<AgentRecord, "definition" | "status" | "approved_at">>) {
-    return this.mutate(s => {
-      const a = (s.agents[businessId] ?? []).find(x => x.key === key);
-      if (!a) throw new Error("NOT_FOUND");
-      Object.assign(a, patch);
-      return a;
-    });
-  }
+  updateBusiness(id: string, patch: BusinessPatch) { return this.mutate(s => storeOps.updateBusiness(s, id, patch)); }
+  async listMessages(businessId: string) { return (await this.snapshot()).messages[businessId] ?? []; }
+  appendMessage(msg: Omit<MessageRecord, "id" | "created_at">) { return this.mutate(s => storeOps.appendMessage(s, msg)); }
+  async listAgents(businessId: string) { return (await this.snapshot()).agents[businessId] ?? []; }
+  replaceAgents(businessId: string, agents: Array<Omit<AgentRecord, "id" | "business_id" | "created_at">>) { return this.mutate(s => storeOps.replaceAgents(s, businessId, agents)); }
+  async listWorkflows(businessId: string) { return ((await this.snapshot()).workflows ?? {})[businessId] ?? []; }
+  createWorkflow(rec: Omit<WorkflowRecord, "id" | "created_at">) { return this.mutate(s => storeOps.createWorkflow(s, rec)); }
+  updateWorkflow(businessId: string, workflowId: string, patch: WorkflowPatch) { return this.mutate(s => storeOps.updateWorkflow(s, businessId, workflowId, patch)); }
+  deleteWorkflow(businessId: string, workflowId: string) { return this.mutate(s => storeOps.deleteWorkflow(s, businessId, workflowId)); }
+  updateAgent(businessId: string, key: AgentKey, patch: AgentPatch) { return this.mutate(s => storeOps.updateAgent(s, businessId, key, patch)); }
 }
 
 /** One-time conversion of the M1 development file (.data/discovery-sessions.json), if present. */
@@ -331,10 +294,12 @@ function migrateM1Sessions(dir: string): DevState {
 }
 
 // One store instance per server process (on globalThis), so every route module shares ONE write queue.
+// The hosted demo (Upstash configured, or any Vercel deployment) always uses the shared store; on Vercel
+// without Upstash every operation fails closed (see src/lib/kv/index.ts).
 const REPO = Symbol.for("employai.discoveryRepository");
 const holder = globalThis as unknown as { [REPO]?: DiscoveryRepository | null };
 export function discoveryRepository(): DiscoveryRepository {
-  holder[REPO] ??= new FileDevStore();
+  holder[REPO] ??= isSharedStore() ? new RedisStore(getKv()) : new FileDevStore();
   return holder[REPO]!;
 }
 /** Test hook: use an isolated store. */

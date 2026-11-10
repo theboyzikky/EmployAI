@@ -26,7 +26,7 @@ export function HowItWorks() {
           title="From a conversation to a working AI team"
           intro="No workflow builders, no code. You explain the business; EmployAI does the design work and asks for your approval at every step that matters."
         />
-        <ol className="relative mt-14 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        <ol className="relative mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {/* The journey line: visible only in the gaps between cards, level with the step icons. */}
           <span aria-hidden="true" style={{ top: 48 }} className="pointer-events-none absolute inset-x-0 hidden border-t border-dashed border-accent-line lg:block" />
           {STEPS.map((s, i) => {

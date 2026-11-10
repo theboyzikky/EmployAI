@@ -17,6 +17,8 @@ import { bindingDiff, testnetActionHash } from "@/lib/security/authorisation";
 import { currentBinding } from "./binding";
 import type { ChainVerdict, PaymentChain, SignedPaymentData } from "./payment-port";
 import { runRead, runTransact, type RunTx } from "./repo";
+import { nonceFloor, signerNonceKey, takeSigner, type SignerSlot } from "./signer-lease";
+import type { Lease } from "@/lib/store/lease";
 import { TERMINAL_ATTEMPT_STATUSES, type AttemptStatus, type PaymentAttempt } from "./types";
 
 /** This server process. Leases name it, so a restarted server can tell stale leases from live ones. */
@@ -135,26 +137,57 @@ async function fromPrepared(ctx: Ctx, a: PaymentAttempt): Promise<Next> {
     return "stop";
   }
 
-  // 3 · sign (the signer re-checks readiness, recipient, limits, duplicates and, LAST, the key)
-  const res = await chain.sign({ requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto, mode: a.sign_mode ?? "new", previousExpiresAfterHeight: a.previous_expires_after_height ?? null });
-  if (!res.ok) {
-    if (res.transient) return preSignFailure(ctx, res.code, "The NEAR testnet couldn't be reached while preparing the signature; nothing was signed.");
-    await runTransact(ctx.businessId, tx => abort(tx, ctx, ["signing"], res.code, `The signer refused: ${res.detail}. Nothing was signed.`));
+  // 3 · take the signer: ONE signer at a time across every server instance (src/lib/runs/signer-lease.ts).
+  //     Busy → back to `prepared`, untouched (the next advance tries again). Paused by the operator →
+  //     abort: nothing is signed or sent. The coordination store unreachable → nothing is signed.
+  let slot: SignerSlot;
+  try { slot = await takeSigner(chain.target.agent); }
+  catch { return preSignFailure(ctx, "COORDINATION_UNAVAILABLE", "The shared coordination store couldn't be reached before signing; nothing was signed."); }
+  if (!slot.ok) {
+    if (slot.reason === "paused") {
+      await runTransact(ctx.businessId, tx => abort(tx, ctx, ["signing"], "TESTNET_PAUSED", "Real testnet payments are paused on this demo right now. Nothing was signed or sent."));
+      return "stop";
+    }
+    await runTransact(ctx.businessId, tx => {
+      if (tx.patchAttempt(businessId, attemptId, ["signing"], { status: "prepared" }, owner)) note(tx, ctx, "wait", "another payment is being signed right now; this one waits its turn (nothing was signed)");
+    });
     return "stop";
   }
+  const lease = slot.lease;
+  try {
+    // 4 · sign (the signer re-checks readiness, recipient, limits, duplicates and, LAST, the key), with a
+    //     nonce above every nonce any instance has persisted
+    let floor: string | null;
+    try { floor = await nonceFloor(chain.target.agent); }
+    catch { return preSignFailure(ctx, "COORDINATION_UNAVAILABLE", "The shared coordination store couldn't be reached before signing; nothing was signed."); }
+    const res = await chain.sign({ requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto, mode: a.sign_mode ?? "new", previousExpiresAfterHeight: a.previous_expires_after_height ?? null, minNonceExclusive: floor });
+    if (!res.ok) {
+      if (res.transient) return preSignFailure(ctx, res.code, "The NEAR testnet couldn't be reached while preparing the signature; nothing was signed.");
+      await runTransact(ctx.businessId, tx => abort(tx, ctx, ["signing"], res.code, `The signer refused: ${res.detail}. Nothing was signed.`));
+      return "stop";
+    }
 
-  // 4 · write-ahead BEFORE any broadcast. If this fails (the attempt was aborted meanwhile, or the
-  //     store write failed), the bytes are discarded here and are never sent.
-  const s: SignedPaymentData = res.signed;
-  const stored = await runTransact(ctx.businessId, tx => {
-    const ok = tx.patchAttempt(businessId, attemptId, ["signing"], {
-      status: "signed", nonce: s.nonce, signer_public_key: s.publicKey, tx_hash: s.txHash, signed_tx_b64: s.signedTxBase64,
-      signed_block_hash: s.blockHash, signed_block_height: s.signedBlockHeight, validity_period_blocks: s.validityPeriodBlocks, expires_after_height: s.expiresAfterHeight,
-    }, owner);
-    if (ok) event(tx, ctx, "payment.signed", "signed", { tx_hash: s.txHash, nonce: s.nonce, expires_after_height: s.expiresAfterHeight });
-    return ok;
-  }).catch(() => false);
-  return stored ? "continue" : "stop";
+    // 5 · write-ahead BEFORE any broadcast, fenced by the signer lease and raising the shared nonce floor
+    //     in the same atomic step. If it fails (the attempt was aborted meanwhile, the lease was lost, or
+    //     the store write failed), the bytes are discarded here and are never sent.
+    const s: SignedPaymentData = res.signed;
+    const stored = await runTransact(ctx.businessId, tx => {
+      const ok = tx.patchAttempt(businessId, attemptId, ["signing"], {
+        status: "signed", nonce: s.nonce, signer_public_key: s.publicKey, tx_hash: s.txHash, signed_tx_b64: s.signedTxBase64,
+        signed_block_hash: s.blockHash, signed_block_height: s.signedBlockHeight, validity_period_blocks: s.validityPeriodBlocks, expires_after_height: s.expiresAfterHeight,
+      }, owner);
+      if (ok) event(tx, ctx, "payment.signed", "signed", { tx_hash: s.txHash, nonce: s.nonce, expires_after_height: s.expiresAfterHeight });
+      return ok;
+    }, { fences: [lease.fence], side: [{ op: "max", key: signerNonceKey(chain.target.agent), value: s.nonce }] }).catch(() => false);
+    if (!stored) return "stop";
+
+    // 6 · broadcast under the same lease
+    const signedNow = await runRead(ctx.businessId, tx => tx.attempt(businessId, attemptId));
+    if (!signedNow || signedNow.status !== "signed") return "stop";
+    return await fromSigned(ctx, signedNow, lease);
+  } finally {
+    await lease.release();
+  }
 }
 
 /** A failure before anything was signed: back to `prepared` (bounded), then "Payment not sent". */
@@ -170,17 +203,39 @@ async function preSignFailure(ctx: Ctx, code: string, message: string): Promise<
   return "stop";
 }
 
-async function fromSigned(ctx: Ctx, a: PaymentAttempt): Promise<Next> {
-  const go = await runTransact(ctx.businessId, tx => {
-    // Kill switch or stop between signing and broadcast: the bytes are discarded, never sent (§14).
-    const blocked = blockedReason(tx, a);
-    if (blocked) { abort(tx, ctx, ["signed"], blocked.code, blocked.message); return false; }
-    return tx.patchAttempt(ctx.businessId, ctx.attemptId, ["signed"], { status: "submitting", broadcasts: a.broadcasts + 1 }, ctx.owner);
-  });
-  if (!go || !a.signed_tx_b64) return "stop";
-  const verdict = await ctx.chain.broadcast({ signedTxBase64: a.signed_tx_b64, requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto }).catch(() => ({ outcome: "unknown", reason: "broadcast error" }) as ChainVerdict);
-  await settle(ctx, a, ["submitting"], verdict);
-  return "stop";
+/**
+ * Broadcast persisted bytes, under the signer lease (the one held since signing, or a fresh one). The
+ * switch to `submitting` is fenced by it, so a stalled instance can't start a broadcast.
+ */
+async function fromSigned(ctx: Ctx, a: PaymentAttempt, held?: Lease): Promise<Next> {
+  let lease = held ?? null;
+  if (!lease) {
+    let slot: SignerSlot;
+    try { slot = await takeSigner(ctx.chain.target.agent); }
+    catch { await runTransact(ctx.businessId, tx => note(tx, ctx, "wait", "the coordination store couldn't be reached; not broadcasting now")).catch(() => undefined); return "stop"; }
+    if (!slot.ok) {
+      if (slot.reason === "paused") {
+        await runTransact(ctx.businessId, tx => abort(tx, ctx, ["signed"], "TESTNET_PAUSED", "Real testnet payments are paused on this demo right now. The signed transaction was discarded and never sent."));
+      }
+      return "stop";   // busy: still `signed`; the next advance broadcasts it
+    }
+    lease = slot.lease;
+  }
+  const fence = lease.fence;
+  try {
+    const go = await runTransact(ctx.businessId, tx => {
+      // Kill switch or stop between signing and broadcast: the bytes are discarded, never sent (§14).
+      const blocked = blockedReason(tx, a);
+      if (blocked) { abort(tx, ctx, ["signed"], blocked.code, blocked.message); return false; }
+      return tx.patchAttempt(ctx.businessId, ctx.attemptId, ["signed"], { status: "submitting", broadcasts: a.broadcasts + 1 }, ctx.owner);
+    }, { fences: [fence] }).catch(() => false);
+    if (!go || !a.signed_tx_b64) return "stop";
+    const verdict = await ctx.chain.broadcast({ signedTxBase64: a.signed_tx_b64, requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto }).catch(() => ({ outcome: "unknown", reason: "broadcast error" }) as ChainVerdict);
+    await settle(ctx, a, ["submitting"], verdict);
+    return "stop";
+  } finally {
+    if (!held) await lease.release();
+  }
 }
 
 async function fromUnknown(ctx: Ctx, a: PaymentAttempt): Promise<Next> {
@@ -199,15 +254,29 @@ async function fromUnknown(ctx: Ctx, a: PaymentAttempt): Promise<Next> {
   }
   if (rc.action === "rebroadcast" && a.signed_tx_b64) {
     // Identical bytes only (same hash and nonce): the chain executes a transaction at most once.
-    // Not after a kill switch or stop: then we only reconcile until the window closes.
-    const go = await runTransact(ctx.businessId, tx => {
-      if (blockedReason(tx, a)) { note(tx, ctx, "wait", "validity window open; not re-broadcasting after a kill switch or stop"); return false; }
-      return tx.patchAttempt(ctx.businessId, ctx.attemptId, ["unknown"], { status: "submitting", broadcasts: a.broadcasts + 1 }, ctx.owner);
-    });
-    if (!go) return "stop";
-    const verdict = await ctx.chain.broadcast({ signedTxBase64: a.signed_tx_b64, requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto }).catch(() => ({ outcome: "unknown", reason: "re-broadcast error" }) as ChainVerdict);
-    await settle(ctx, a, ["submitting"], verdict);
-    return "stop";
+    // Not after a kill switch, a stop or an operator pause: then we only reconcile until the window
+    // closes (an unknown outcome is never aborted). Under the signer lease, like every broadcast.
+    let slot: SignerSlot;
+    try { slot = await takeSigner(ctx.chain.target.agent); }
+    catch { await runTransact(ctx.businessId, tx => note(tx, ctx, "wait", "the coordination store couldn't be reached; not re-broadcasting now")).catch(() => undefined); return "stop"; }
+    if (!slot.ok) {
+      const why = slot.reason === "paused" ? "validity window open; not re-broadcasting while testnet payments are paused" : "validity window open; another payment is being sent, re-broadcast later";
+      await runTransact(ctx.businessId, tx => note(tx, ctx, "wait", why));
+      return "stop";
+    }
+    const lease = slot.lease;
+    try {
+      const go = await runTransact(ctx.businessId, tx => {
+        if (blockedReason(tx, a)) { note(tx, ctx, "wait", "validity window open; not re-broadcasting after a kill switch or stop"); return false; }
+        return tx.patchAttempt(ctx.businessId, ctx.attemptId, ["unknown"], { status: "submitting", broadcasts: a.broadcasts + 1 }, ctx.owner);
+      }, { fences: [lease.fence] }).catch(() => false);
+      if (!go) return "stop";
+      const verdict = await ctx.chain.broadcast({ signedTxBase64: a.signed_tx_b64, requestId: a.request_id, recipient: a.recipient, amountYocto: a.amount_yocto }).catch(() => ({ outcome: "unknown", reason: "re-broadcast error" }) as ChainVerdict);
+      await settle(ctx, a, ["submitting"], verdict);
+      return "stop";
+    } finally {
+      await lease.release();
+    }
   }
   const reason = "reason" in rc ? rc.reason : "waiting";
   await runTransact(ctx.businessId, tx => note(tx, ctx, rc.action, reason));

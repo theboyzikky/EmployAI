@@ -70,11 +70,11 @@ export function Workforce() {
           title="A small team of specialists, each with a clear job"
           intro="EmployAI only recommends agents with a real purpose for your business. Here is the team it builds for our demonstration restaurant."
         />
-        <div className="mt-14 grid gap-5 lg:grid-cols-3">
+        <div className="mt-14 grid gap-8 lg:grid-cols-3">
           <Reveal className="lg:row-span-2">
             <AgentCard agent={ORCHESTRATOR} featured />
           </Reveal>
-          <div className="grid gap-5 sm:grid-cols-2 lg:col-span-2">
+          <div className="grid gap-8 sm:grid-cols-2 lg:col-span-2">
             {SPECIALISTS.map((a, i) => (
               <Reveal key={a.name} delay={(i + 1) * 80}>
                 <AgentCard agent={a} />

@@ -8,7 +8,7 @@ import { DiscoveryNotice } from "./DiscoveryNotice";
 export function TeamOverview({ view }: { view: WorkspaceView }) {
   const kept = view.agents.filter(a => a.status !== "removed");
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <div className="card px-5 py-4">
         <h1 className="text-xl font-semibold text-ink">Your AI team</h1>
         <p className="mt-1 text-sm font-light text-muted">
@@ -27,7 +27,7 @@ export function TeamOverview({ view }: { view: WorkspaceView }) {
           <Link href={`/start/${view.businessId}`} className="btn btn-primary btn-sm icon-host mt-3">Back to discovery <Icon icon={ArrowRightIcon} size={16} /></Link>
         )}
       </div>
-      <ul className="grid gap-4 md:grid-cols-2">
+      <ul className="grid gap-8 md:grid-cols-2">
         {kept.map(a => (
           <li key={a.key} className="card p-5">
             <div className="flex items-start justify-between gap-3">

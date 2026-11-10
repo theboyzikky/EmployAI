@@ -26,7 +26,7 @@ export function Integrations() {
           title="Built on NEAR, honest about the rest"
           intro="This prototype lists only what actually works today. Connectors for the tools you already use are on the roadmap and are labelled that way."
         />
-        <div className="mt-14 grid gap-5 md:grid-cols-2">
+        <div className="mt-14 grid gap-8 md:grid-cols-2">
           {AVAILABLE.map((a, i) => (
             <Reveal key={a.name} delay={i * 80} className="card flex gap-4 p-6">
               <span className="inline-flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-ink text-on-ink">

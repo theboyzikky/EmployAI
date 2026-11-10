@@ -76,7 +76,7 @@ export function WorkflowWorkspace({ initialView }: { initialView: WorkspaceView 
   const wf = view.workflows.find(w => w.id === shownId) ?? view.workflows[0];
   if (!wf) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-8">
         <Gate title="Build the workflow for your team" icon={FlowArrowIcon}>
           <p>EmployAI builds the “Order to restock” workflow from fixed templates, using only your approved agents and the tasks you kept. You can check every step and adjust the money settings before approving.</p>
           <p className="mt-2 flex items-start gap-2 text-muted"><Icon icon={InfoIcon} size={16} swap={false} className="mt-0.5 flex-none text-accent" />{NOT_RUNNING}</p>
@@ -104,7 +104,7 @@ export function WorkflowWorkspace({ initialView }: { initialView: WorkspaceView 
     : { locked: false, reason: undefined };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       {/* Header: name, version, status, actions */}
       <section aria-labelledby="wf-title" className="card px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -212,7 +212,7 @@ export function WorkflowWorkspace({ initialView }: { initialView: WorkspaceView 
         </div>
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-8 lg:grid-cols-2">
         <section aria-labelledby="settings-title" className="card p-5">
           <h2 id="settings-title" className="text-base font-semibold text-ink">Money and notification settings</h2>
           <p className="mb-4 text-sm font-light text-muted">

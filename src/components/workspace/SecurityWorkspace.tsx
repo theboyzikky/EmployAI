@@ -28,7 +28,7 @@ export function SecurityWorkspace({ businessId, initial }: { businessId: string;
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <section aria-labelledby="sec-title" className="card px-5 py-4">
         <h1 id="sec-title" className="flex items-center gap-2 text-xl font-semibold text-ink"><Icon icon={ShieldCheckIcon} size={22} swap={false} className="text-accent" />Security</h1>
         <p className="mt-1 text-sm font-light text-muted">Every payment passes the security check before anything is signed. A recipient confirmed on the shared blocklist is always blocked; a reported one gets a warning.</p>

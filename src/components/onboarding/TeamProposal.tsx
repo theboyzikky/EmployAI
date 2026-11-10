@@ -61,7 +61,7 @@ export function TeamProposal({ team, busy, onPatch, onApprove, workspaceHref, ru
         </ul>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-8 xl:grid-cols-2">
         {team.agents.map(a => <AgentProposalCard key={a.key} agent={a} locked={approved} busy={busy} onPatch={p => onPatch(a.key, p)} />)}
       </div>
 

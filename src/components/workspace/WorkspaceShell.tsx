@@ -24,7 +24,7 @@ export function WorkspaceShell({ businessId, businessName, tab, killSwitch, chil
   return (
     <div className="flex min-h-dvh flex-col bg-canvas">
       <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur-md">
-        <div className="mx-auto flex h-16 w-full max-w-[1320px] items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6">
+        <div className="mx-auto flex h-16 w-full max-w-[1320px] items-center justify-between gap-2 px-6 sm:gap-3 lg:px-12">
           <div className="flex min-w-0 items-center gap-1 sm:gap-3">
             <Link href={`/start/${businessId}`} aria-label="Back to business discovery" className="icon-host inline-flex h-10 w-10 flex-none items-center justify-center rounded-full text-ink transition-colors hover:bg-accent-soft hover:text-accent">
               <Icon icon={ArrowLeftIcon} size={20} />
@@ -40,7 +40,7 @@ export function WorkspaceShell({ businessId, businessName, tab, killSwitch, chil
             <ThemeToggle />
           </div>
         </div>
-        <nav aria-label="Workspace" className="mx-auto w-full max-w-[1320px] px-4 sm:px-6">
+        <nav aria-label="Workspace" className="mx-auto w-full max-w-[1320px] px-6 lg:px-12">
           <ul className="flex gap-1">
             {tabs.map(t => {
               const active = t.key === tab;
@@ -62,7 +62,7 @@ export function WorkspaceShell({ businessId, businessName, tab, killSwitch, chil
           </ul>
         </nav>
       </header>
-      <main id="main" className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:py-8">{children}</main>
+      <main id="main" className="mx-auto w-full max-w-[1320px] flex-1 px-6 py-6 lg:px-12 lg:py-8">{children}</main>
     </div>
   );
 }
@@ -71,7 +71,7 @@ export function WorkspaceSkeleton({ tab }: { tab: WorkspaceTab }) {
   return (
     <div className="flex min-h-dvh flex-col bg-canvas" aria-busy="true" aria-label={`Loading ${tab}`}>
       <div className="h-[106px] border-b border-line bg-surface" />
-      <div className="mx-auto w-full max-w-[1320px] space-y-4 px-4 py-8 sm:px-6">
+      <div className="mx-auto w-full max-w-[1320px] space-y-8 px-6 py-8 lg:px-12">
         <div className="h-24 animate-pulse rounded-2xl bg-surface motion-reduce:animate-none" />
         <div className="h-64 animate-pulse rounded-2xl bg-surface motion-reduce:animate-none" />
       </div>

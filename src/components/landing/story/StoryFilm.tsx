@@ -198,7 +198,7 @@ export function StoryFilm() {
           <div ref={n => { layers.current[3] = n; }} className="film-foreground absolute" />
         </div>
 
-        <div aria-hidden="true" className="relative mx-auto flex h-full max-w-[1200px] flex-col px-4 pb-14 pt-[88px] sm:px-6 xl:flex-row xl:items-center xl:gap-12 xl:px-8 xl:pb-12 xl:pt-[96px]">
+        <div aria-hidden="true" className="relative mx-auto flex h-full max-w-[1200px] flex-col px-6 pb-14 pt-[88px] lg:px-12 xl:flex-row xl:items-center xl:gap-12 xl:pb-12 xl:pt-[96px]">
           {/* Narration */}
           <div className="relative z-10 shrink-0 xl:w-[20rem]">
             <div className="flex gap-1.5">
@@ -252,7 +252,7 @@ export function StoryFilm() {
 
         {/* Honest labelling + a way out that never depends on scrolling through. */}
         <div className="absolute inset-x-0 bottom-0 z-20">
-          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-3 px-4 pb-4 sm:px-6 xl:px-8">
+          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-3 px-6 pb-4 lg:px-12">
             <p className="text-[0.75rem] font-medium text-muted">
               <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent align-middle" aria-hidden="true" />
               Illustration with simulated data. No real orders, payments or integrations.

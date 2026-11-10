@@ -17,7 +17,7 @@ export function ConsultantShell({ children, panel, stage = 0, complete = false, 
       <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur-md">
         {/* Phones: back · logo … AI-mode badge · theme. The page name joins from the `sm` breakpoint
             (it is also announced by the page's heading), so the logo is always visible. */}
-        <div className="mx-auto flex h-16 w-full max-w-[1320px] items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6">
+        <div className="mx-auto flex h-16 w-full max-w-[1320px] items-center justify-between gap-2 px-6 sm:gap-3 lg:px-12">
           <div className="flex min-w-0 items-center gap-1 sm:gap-3">
             <Link href="/" aria-label="Back to the EmployAI home page" className="icon-host inline-flex h-10 w-10 flex-none items-center justify-center rounded-full text-ink transition-colors hover:bg-accent-soft hover:text-accent">
               <Icon icon={ArrowLeftIcon} size={20} />
@@ -38,7 +38,7 @@ export function ConsultantShell({ children, panel, stage = 0, complete = false, 
         <StageProgress current={stage} complete={complete} />
       </header>
 
-      <div className="mx-auto grid w-full max-w-[1320px] flex-1 grid-rows-[auto_1fr] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-1 lg:py-8">
+      <div className="mx-auto grid w-full max-w-[1320px] flex-1 grid-rows-[auto_1fr] gap-8 px-6 py-6 lg:px-12 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-1 lg:py-8">
         <main id="main" className="flex min-w-0 flex-col">{children}</main>
         <aside aria-label="What I understand" className="order-first lg:order-none">{panel}</aside>
       </div>

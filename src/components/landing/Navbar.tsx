@@ -61,7 +61,7 @@ export function Navbar() {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[60] focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-on-ink">
         Skip to content
       </a>
-      <nav aria-label="Main" className="mx-auto flex h-[72px] w-full max-w-[1200px] items-center justify-between px-4 sm:px-6 lg:px-8">
+      <nav aria-label="Main" className="mx-auto flex h-[72px] w-full max-w-[1200px] items-center justify-between px-6 lg:px-12">
         <Logo />
 
         <div className="hidden items-center gap-8 md:flex">

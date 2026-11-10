@@ -67,7 +67,7 @@ export function Hero() {
         ))}
       </div>
 
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col items-center px-4 pb-16 pt-10 text-center sm:px-6 sm:pt-14 lg:px-8 lg:pb-24">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col items-center px-6 pb-16 pt-10 text-center sm:pt-14 lg:px-12 lg:pb-24">
         <span className="eyebrow enter" style={{ "--enter-delay": "0ms" } as CSSProperties}>
           <Icon icon={SparkleIcon} size={14} swap={false} />
           Your business, autonomous

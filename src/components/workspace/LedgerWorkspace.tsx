@@ -16,7 +16,7 @@ const KIND: Record<LedgerRowView["kind"], { text: string; cls: string; icon: typ
 export function LedgerWorkspace({ view }: { view: LedgerView }) {
   const t = view.totals;
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <section aria-labelledby="ledger-title" className="card px-5 py-4">
         <h1 id="ledger-title" className="flex items-center gap-2 text-xl font-semibold text-ink"><Icon icon={ReceiptIcon} size={22} swap={false} className="text-accent" />Ledger</h1>
         <p className="mt-1 text-sm font-light text-muted">

@@ -30,7 +30,7 @@ export function Security() {
             </p>
           </Reveal>
         </div>
-        <ul className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-14 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {CONTROLS.map((c, i) => (
             <Reveal as="li" key={c.title} delay={i * 70} className="rounded-[var(--radius-card)] border border-white/10 bg-white/[0.04] p-6">
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-on-band">

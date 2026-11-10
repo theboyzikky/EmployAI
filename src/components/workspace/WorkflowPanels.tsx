@@ -57,7 +57,7 @@ export function DemoDataCard({ data }: { data: DemoScenario }) {
         <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">Demo data · fictional</span>
       </div>
       <p className="mt-1 text-sm font-light text-muted">{data.label} Prices are illustrative naira.</p>
-      <div className="mt-4 grid gap-5 lg:grid-cols-3">
+      <div className="mt-4 grid gap-8 lg:grid-cols-3">
         <div className="overflow-x-auto">
           <table className="w-full">
             <caption className="mb-2 text-left text-sm font-semibold text-ink">Menu</caption>

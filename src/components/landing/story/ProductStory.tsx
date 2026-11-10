@@ -41,7 +41,7 @@ function StoryStatic() {
   return (
     <div className="film-static sr-only motion-reduce:not-sr-only">
       <Container className="pb-20 pt-12 sm:pb-28">
-        <ol className="grid gap-5 lg:grid-cols-2">
+        <ol className="grid gap-8 lg:grid-cols-2">
           {SCENES.map((s, i) => (
             <li key={s.label} className="card flex flex-col gap-5 p-6">
               <div>

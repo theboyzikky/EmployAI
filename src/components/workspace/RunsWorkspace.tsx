@@ -152,7 +152,7 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
   useEffect(() => { shownSteps.current = run?.steps.length ?? 0; }, [run?.steps.length]);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <section aria-labelledby="runs-title" className="card px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -169,7 +169,7 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
         {!view.eligibility.canRun && <Eligibility view={view} />}
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <section aria-labelledby="addresses-title" className="card px-5 py-4">
           <h2 id="addresses-title" className="flex items-center gap-2 text-base font-semibold text-ink"><Icon icon={TargetIcon} size={18} swap={false} className="text-accent" />What this workflow addresses</h2>
           <p className="mt-0.5 text-xs text-muted">Your business information, from discovery. Test runs never change it.</p>
@@ -226,7 +226,7 @@ export function RunsWorkspace({ initialView, initialRun }: { initialView: RunsVi
 
       {run && <RunPanel run={run} busy={busy} confirm={confirm} setConfirm={setConfirm} onDecide={decide} onControl={control} onCheckPayment={checkPayment} onRetryPayment={retryPayment} reveal={reveal} />}
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-8 lg:grid-cols-2">
         <section aria-labelledby="history-title" className="card px-5 py-4">
           <h2 id="history-title" className="text-base font-semibold text-ink">Run history</h2>
           {view.runs.length ? (

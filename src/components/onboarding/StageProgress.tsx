@@ -34,7 +34,7 @@ export function StageProgress({ current, complete }: { current: number; complete
   }, [current, complete]);
 
   return (
-    <nav aria-label="Discovery progress" className="relative mx-auto w-full max-w-[1320px] overflow-x-auto px-4 pb-3 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden">
+    <nav aria-label="Discovery progress" className="relative mx-auto w-full max-w-[1320px] overflow-x-auto px-6 pb-3 [scrollbar-width:none] lg:px-12 [&::-webkit-scrollbar]:hidden">
       <ol ref={ref} className="flex min-w-max items-center gap-2">
         {STAGES.map((s, i) => {
           const state = complete || i < current ? "done" : i === current ? "current" : "upcoming";

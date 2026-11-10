@@ -84,7 +84,7 @@ export function StoryFilm() {
     const measure = () => {
       const r = world.getBoundingClientRect();
       layout = r.width < 620 ? NARROW : WIDE;
-      const s = Math.max(0.4, Math.min(r.width / layout.w, r.height / layout.h, 1.15));
+      const s = Math.max(0.4, Math.min(r.width / layout.w, r.height / layout.h, 1.35));
       attr(camera, "data-layout", layout.name);
       write(camera, { width: `${layout.w}px`, height: `${layout.h}px`, transform: `translate(-50%, -50%) scale(${r2(s)})` });
       attr(svg, "viewBox", `${-layout.w / 2} ${-layout.h / 2} ${layout.w} ${layout.h}`);
@@ -198,9 +198,9 @@ export function StoryFilm() {
           <div ref={n => { layers.current[3] = n; }} className="film-foreground absolute" />
         </div>
 
-        <div aria-hidden="true" className="relative mx-auto flex h-full max-w-[1200px] flex-col px-6 pb-14 pt-[88px] lg:px-12 xl:flex-row xl:items-center xl:gap-12 xl:pb-12 xl:pt-[96px]">
+        <div aria-hidden="true" className="film-layout relative mx-auto flex h-full max-w-[1200px] flex-col px-6 pb-14 pt-[88px] lg:px-12 xl:flex-row xl:items-center xl:gap-12 xl:pb-12 xl:pt-[96px]">
           {/* Narration */}
-          <div className="relative z-10 shrink-0 xl:w-[20rem]">
+          <div className="film-narration relative z-10 shrink-0 xl:w-[20rem]">
             <div className="flex gap-1.5">
               {PROGRESS_WINDOWS.map((_, i) => (
                 <span key={i} className="h-[3px] flex-1 overflow-hidden rounded-full bg-line">
@@ -228,7 +228,7 @@ export function StoryFilm() {
           </div>
 
           {/* Stage */}
-          <div ref={worldRef} className="relative mt-2 min-h-0 flex-1 self-stretch xl:mt-0">
+          <div ref={worldRef} className="film-world relative mt-2 min-h-0 flex-1 self-stretch xl:mt-0">
             <div ref={cameraRef} className="film-camera absolute left-1/2 top-1/2" data-layout="wide" data-phase="learning" style={{ width: WIDE.w, height: WIDE.h, transform: "translate(-50%, -50%)" }}>
               <div ref={el("ring")} className="film-el film-el-ring film-ring" style={initial("ring")} />
               <svg ref={svgRef} className="film-lines absolute inset-0 h-full w-full overflow-visible" style={{ transform: "translateZ(-800px) scale(1.6154)" }} viewBox={`${-WIDE.w / 2} ${-WIDE.h / 2} ${WIDE.w} ${WIDE.h}`}>

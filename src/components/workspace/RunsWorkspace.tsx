@@ -413,6 +413,13 @@ function TestnetPanel({ view, busy, arm, setArm, onArm, realOk, setRealOk }: {
   return (
     <div className="mt-3 space-y-3 rounded-xl border border-accent-line bg-accent-soft px-3 py-3 text-sm">
       <p className="text-xs text-ink">Payees (approved suppliers on the treasury contract allowlist): {view.testnet.recipients.map(x => `${x.supplier} → ${x.account}`).join("; ")}. Limits: 0.1 NEAR per payment, 0.25 NEAR per day (also enforced by the contract).</p>
+      {view.testnet.hostedDemo && (
+        <p className="text-xs text-ink" role="note">
+          <span className="font-semibold">Public demo · real NEAR testnet transaction.</span> It uses testnet tokens, which have no monetary value, and anyone can verify it on a public explorer.
+          The 0.25 NEAR daily cap is shared by every visitor, so real payments may stop for the rest of the day (UTC) once it&apos;s reached; simulated test runs stay available.
+          {view.testnet.runsPerDay ? ` This workspace can start up to ${view.testnet.runsPerDay} real testnet runs per day.` : ""}
+        </p>
+      )}
       {b ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-ink">Batch <span className="font-semibold">{b.ref}</span> armed: {b.paymentsUsed}/{b.maxPayments} payments, {b.usedNear}/{b.maxTotalNear} NEAR, until {when(b.expiresAt)}.</p>

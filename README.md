@@ -40,7 +40,7 @@ Owners know what they want automated but not how to design triggers, workflows a
 | Customer messages, supplier quotes, owner notifications | **Simulated** and labelled ("not sent", "no supplier contacted"). |
 | Customer payments and revenue split (`pay_order`) | **Not enabled.** The contract method exists but is switched off; see Limitations. |
 | AI consultant | Offline rule-based mode (`AI_PROVIDER=mock`, no keys) or NEAR AI Cloud (`AI_PROVIDER=nearai`). The screen always shows which. Agents in runs are rule-based in both modes. |
-| Storage | Local development store (`.data/dev-store.json`, git-ignored, single process). Not production persistence. |
+| Storage | **Locally:** a development store (`.data/dev-store.json`, git-ignored, single process). **Hosted demo:** a shared Upstash Redis store: one versioned document per workspace, atomic compare-and-set commits across server instances, workspaces expire 60 days after their last change. See [the hosted demo guide](docs/deployment/vercel-upstash.md). |
 
 ## Try it (do X, see Y)
 
@@ -130,7 +130,9 @@ It's re-checked at the click, when it's used, and just before signing, with the 
 - the `payout_completed` event matches the request, recipient, amount and agent;
 - the record says `Paid`.
 
-**Single server.** The store, locks and signer guards are per process; a lock file lets only one server process sign.
+**Locally: one server.** The store, locks and signer guards are per process; a lock file lets only one server process sign.
+
+**Hosted: many server instances, one signer.** The store, the business lock, the signer and the AI spending ledger live in Upstash Redis. Every write is an atomic compare-and-set; locks are leases with unique tokens, renewal and fencing, so a server that stalled or lost its lease can't write again. One signer lease per key covers nonce → signature → write-ahead → broadcast, and the write-ahead raises a shared nonce floor in the same atomic step. A stalled signer can't persist (and so never broadcasts) its signature. If Redis can't be reached, AI and payments fail closed. Details and the proofs: [docs/deployment/vercel-upstash.md](docs/deployment/vercel-upstash.md).
 
 ## Architecture
 
@@ -141,7 +143,8 @@ Testnet accounts (owner-created): `employai-demo.testnet` (owner), `treasury.emp
 ## Limitations (honest)
 
 - **Customer payments and the revenue split aren't enabled.** `pay_order` exists in the contract but is switched off: it has no on-chain order-ID replay protection yet, and a customer payment needs a deposit, which a restricted key can't attach. Enabling it safely needs a contract update and a decision on who holds the customer's key. The `business` track evidence is therefore supplier payouts, the treasury and its policy, not sales.
-- No hosted demo; it runs locally. Storage is a single-process development store. No platform reviewer role yet, so only the labelled demo fixture is a confirmed blocklist entry.
+- **Hosted demo (Vercel + Upstash free tiers):** no uptime guarantee. The 0.25 NEAR daily on-chain cap is shared by every visitor (about 8 payouts of 0.031 NEAR a day). Without sign-in, a determined abuser could use up a day's shared AI or testnet allowance (costs stay capped). Sessions are browser cookies with no recovery. What judges type is stored for 60 days and sent to NEAR AI, and the UI says so. Full list: [hosted demo guide](docs/deployment/vercel-upstash.md#limitations-that-remain).
+- No platform reviewer role yet, so only the labelled demo fixture is a confirmed blocklist entry.
 - NEAR Intents and chain signatures aren't used. NearBlocks shows a bot check to automated browsers; the app links to NEAR Rocks first.
 - On some Windows machines `cargo test` fails while compiling a native dependency (`aws-lc-sys`); that's a local toolchain issue, not the contract.
 
@@ -156,6 +159,7 @@ Testnet accounts (owner-created): `employai-demo.testnet` (owner), `treasury.emp
 
 - Secrets live in `.env` (git-ignored); `.env.example` has names only. No private key is in the repository, and the server never holds an owner or full-access key.
 - Real transactions are signed only after the owner approves each one in the app.
+- Hosted demo: keys are Vercel environment variables (server-only, never `NEXT_PUBLIC_`). IPs are stored only as salted hashes for rate limits. Operators can pause real payments (`eai:ops:testnet_paused`) or live AI (`eai:ops:ai_paused`) from the Upstash console without redeploying.
 
 ## License
 

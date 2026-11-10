@@ -7,6 +7,7 @@ import {
 import { ButtonLink } from "@/components/ui/Button";
 import { cx } from "@/lib/cx";
 import { HeroChat } from "./HeroChat";
+import { isSharedStore } from "@/lib/kv";
 
 type Floater = {
   icon: PhosphorIcon; label: string; pos: string; show: string; duration: number; delay: number; alt?: boolean;
@@ -37,6 +38,7 @@ const ACCENTS = [
 ];
 
 export function Hero() {
+  const hostedDemo = isSharedStore();   // the public, multi-visitor demo: show the privacy notice
   return (
     <section aria-labelledby="hero-title" className="relative isolate overflow-hidden">
       {/* Layered background: soft lavender wash, low-strength deep-purple glows, dot grid, rings. */}
@@ -89,6 +91,11 @@ export function Hero() {
         <div className="relative mt-12 w-full max-w-[52rem]">
           <div aria-hidden="true" className="chat-glow pointer-events-none absolute -inset-x-10 -inset-y-8 -z-10" />
           <HeroChat />
+          {hostedDemo && (
+            <p className="mt-3 text-xs text-muted" role="note">
+              Public demo: what you type is stored in this demo&apos;s database for up to 60 days after your last activity, and it&apos;s sent to NEAR AI to write the consultant&apos;s replies. Please don&apos;t enter personal or confidential information. Payments use NEAR testnet tokens only.
+            </p>
+          )}
         </div>
       </div>
     </section>

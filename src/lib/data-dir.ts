@@ -1,11 +1,11 @@
 import path from "node:path";
 
 /**
- * Where the local development store, the AI spending totals and the testnet signer lock live.
- * Locally: `.data/` in the project (git-ignored). On Vercel the deployment's file system is read-only
- * except `/tmp`, so the store goes there. It lasts only while one server instance stays warm and isn't
- * shared between instances, so a hosted demo's data can reset (the README says so).
- * `EMPLOYAI_DATA_DIR` overrides both.
+ * Where the LOCAL development files live: the file store, the AI spending totals and the testnet
+ * signer lock file. Locally: `.data/` in the project (git-ignored). `EMPLOYAI_DATA_DIR` overrides it.
+ * The hosted demo doesn't use these files: on Vercel the app uses the shared Upstash store for data,
+ * locks and spending (src/lib/kv), and without it fails closed. The `/tmp` path below only keeps a
+ * stray write on Vercel's read-only file system from crashing; nothing there is relied on.
  */
 export function dataDir(env: Record<string, string | undefined> = process.env): string {
   const override = env.EMPLOYAI_DATA_DIR?.trim();

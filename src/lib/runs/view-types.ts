@@ -28,7 +28,8 @@ export type RunsView = {
   runs: RunSummary[];                       // newest first
   demoLabel: string;
   /** M5 · the armed NEAR testnet batch (read from the store only; GET makes no RPC call). */
-  testnet: { batch: TestnetBatchView | null; recipients: Array<{ supplier: string; account: string }> };
+  /** `hostedDemo`: the public, multi-visitor demo (shared limits apply). `runsPerDay`: real testnet runs a workspace may start per day there. */
+  testnet: { batch: TestnetBatchView | null; recipients: Array<{ supplier: string; account: string }>; hostedDemo: boolean; runsPerDay: number | null };
 };
 
 export type TestnetBatchView = { ref: string; maxPayments: number; paymentsUsed: number; maxTotalNear: string; usedNear: string; expiresAt: string };

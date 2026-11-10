@@ -9,7 +9,7 @@ import type { AgentKey } from "@/lib/catalogue/catalogue";
 import type { TurnContext } from "@/lib/rules/consultant";
 import { caseBasis, groundAnalysis, RawAnalysisSchema } from "./analysis";
 import type { AiResult } from "@/lib/ai/provider";
-import { discoveryReadiness, fieldsView, migrateToCaseFile, syncOwnerFields, type CaseFile } from "./casefile";
+import { caseReadiness, discoveryReadiness, fieldsView, migrateToCaseFile, syncOwnerFields, type CaseFile } from "./casefile";
 import { DiscoveryTurnSchema, OfflineTurnSchema } from "./merge";
 import { FIELD_LABELS, MAX_FIELD_LENGTH, PROFILE_FIELDS, isKnown, type ProfileDoc, type ProfileFieldKey } from "./profile";
 import { applyInterpretation, legacyBookkeeping, legacyInterpretation, runTurn } from "./reasoning";
@@ -136,6 +136,22 @@ export async function consultantTurn(business: BusinessRecord, input: { content?
           item.asked += 1; item.status = "open"; nextCase.pending = key; nextCase.questions_asked += 1;
         }
         result = r; reply = r.data.reply; asking = !!q;
+        // The live consultant has nothing more to ask. It doesn't investigate causes (offline-only, P5),
+        // so a problem it recorded would otherwise stay "open" forever: discovery could never complete
+        // and the consultant would keep repeating its wrap-up. Close such problems honestly as
+        // "cause not investigated" (shown as an unknown in the summary) and record the wrap-up as asked.
+        if (!q) {
+          for (const p of nextCase.problems) {
+            if (p.resolution === "open") { p.resolution = "unknown"; p.uncertainty ??= "The cause wasn't investigated in this conversation."; }
+          }
+          if (!nextCase.agenda.some(a => a.kind === "other_problems")) {
+            nextCase.agenda.push({ key: "other_problems", kind: "other_problems", target: "other", problem_id: null, asked: 1, status: "answered" });
+          }
+          // Tell the owner the next step instead of letting the model restate its wrap-up question.
+          if (caseReadiness(nextCase, fieldsView(nextCase, profile.fields)).ready && !/analy[sz]e my business/i.test(reply)) {
+            reply = `${reply.trim()} When you're ready, click "Analyse my business" to continue.`;
+          }
+        }
       }
     } catch (e) {
       return { aiError: toAiFailure(e) };

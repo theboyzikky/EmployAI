@@ -660,6 +660,47 @@
 [data-visible="true"] .flow-line { transform: scaleX(1); }
 [data-visible="true"] .flow-line-y { transform: scaleY(1); }
 
+/* "How it works" cards: each miniature plays once when its card is revealed (items step in by --i),
+   the journey line flows slowly, and the approval step glows. Reduced motion: final state, static. */
+.hiw-in, .hiw-pop { opacity: 0; }
+.hiw-in { transform: translate3d(0, 6px, 0); }
+.hiw-pop { transform: scale(0.6); }
+.reveal[data-visible="true"] .hiw-in,
+.reveal[data-visible="true"] .hiw-pop {
+  animation: hiw-settle 560ms var(--ease-out-soft) forwards;
+  animation-delay: calc(var(--reveal-delay, 0ms) + 380ms + var(--i, 0) * 170ms);
+}
+.reveal[data-visible="true"] .hiw-pop { animation-duration: 420ms; }
+@keyframes hiw-settle { to { opacity: 1; transform: none; } }
+.hiw-node { transition: background-color 360ms ease, color 360ms ease, box-shadow 360ms ease; }
+.reveal[data-visible="true"] .hiw-in.hiw-node {
+  animation:
+    hiw-settle 560ms var(--ease-out-soft) calc(var(--reveal-delay, 0ms) + 380ms + var(--i, 0) * 170ms) forwards,
+    hiw-node-on 2600ms ease-in-out calc(var(--reveal-delay, 0ms) + 900ms + var(--i, 0) * 260ms) 1 both;
+}
+@keyframes hiw-node-on {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  30% { box-shadow: 0 0 0 3px var(--color-accent-line); }
+}
+.hiw-line {
+  height: 1px;
+  background-image: linear-gradient(90deg, var(--color-accent-line) 50%, transparent 50%);
+  background-size: 10px 1px;
+  animation: hiw-flow 1.6s linear infinite;
+}
+@keyframes hiw-flow { to { background-position: 10px 0; } }
+.hiw-glow { animation: hiw-glow 3.2s ease-in-out infinite; }
+@keyframes hiw-glow {
+  0%, 100% { box-shadow: 0 0 0 6px var(--color-accent-soft); }
+  50% { box-shadow: 0 0 0 10px var(--color-accent-soft), 0 0 24px 2px var(--eai-glow-strong); }
+}
+.hiw-caret { animation: hiw-caret 1s steps(1) infinite; }
+@keyframes hiw-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .hiw-in, .hiw-pop { opacity: 1 !important; transform: none !important; animation: none !important; }
+  .hiw-node, .hiw-line, .hiw-glow, .hiw-caret { animation: none !important; }
+}
+
 /* FAQ disclosure */
 details.faq > summary { list-style: none; }
 details.faq > summary::-webkit-details-marker { display: none; }

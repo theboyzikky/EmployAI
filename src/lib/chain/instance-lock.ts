@@ -5,6 +5,7 @@ import "server-only";
 // is refused (TESTNET_SINGLE_SERVER). A lock left by a process that no longer exists is taken over.
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
 import path from "node:path";
+import { dataDir } from "@/lib/data-dir";
 
 export type InstanceLock = { ok: true; file: string } | { ok: false; code: "TESTNET_SINGLE_SERVER"; message: string };
 
@@ -12,7 +13,7 @@ const alive = (pid: number) => {
   try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
 };
 
-export function acquireSignerLock(dir = path.join(process.cwd(), ".data")): InstanceLock {
+export function acquireSignerLock(dir = dataDir()): InstanceLock {
   const file = path.join(dir, "testnet-signer.lock");
   mkdirSync(dir, { recursive: true });
   for (let i = 0; i < 2; i++) {

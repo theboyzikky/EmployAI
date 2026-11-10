@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataDir } from "@/lib/data-dir";
 import type { AgentKey, CapabilityKey } from "@/lib/catalogue/catalogue";
 import type { AgentDefinition } from "@/lib/catalogue/propose";
 import { emptyProfile, type ProfileDoc } from "./profile";
@@ -155,7 +156,7 @@ export class FileDevStore implements DiscoveryRepository {
   private readonly file: string;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(dir = path.join(process.cwd(), ".data")) {
+  constructor(dir = dataDir()) {
     this.file = path.join(dir, "dev-store.json");
   }
 

@@ -1,6 +1,7 @@
 import "server-only";
 import { readFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { dataDir } from "@/lib/data-dir";
 import { createProvider } from "./factory";
 import type { AiProvider } from "./provider";
 import type { SpendSnapshot, SpendStore } from "./spending";
@@ -11,7 +12,7 @@ import type { SpendSnapshot, SpendStore } from "./spending";
  * spending limit. Production enforcement uses `ledger_entries` (inference_cost) in the database.
  */
 class FileSpendStore implements SpendStore {
-  private readonly file = path.join(process.cwd(), ".data", "ai-spend.json");
+  private readonly file = path.join(dataDir(), "ai-spend.json");
   load(): SpendSnapshot {
     try { return JSON.parse(readFileSync(this.file, "utf8")) as SpendSnapshot; }
     catch { return { spentByDay: {}, calls: 0 }; }

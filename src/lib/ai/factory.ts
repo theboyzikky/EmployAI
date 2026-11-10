@@ -43,7 +43,7 @@ async function loadPrices(baseURL: string, models: string[], provider: string, f
   return prices;
 }
 
-export type FactoryDeps = { fetchImpl?: typeof fetch; allowHttpLocalhost?: boolean; today?: () => string; spendStore?: SpendStore };
+export type FactoryDeps = { fetchImpl?: typeof fetch; allowHttpLocalhost?: boolean; today?: () => string; spendStore?: SpendStore; preflight?: () => Promise<void> };
 
 /** Validate configuration only (no network). Used for the "AI mode" badge. */
 export function configuredProvider(env: Env): { name: ProviderName | null; label: string; problem: string | null } {
@@ -81,7 +81,7 @@ export async function createProvider(env: Env, deps: FactoryDeps = {}): Promise<
       const structured = env.NEAR_AI_STRUCTURED_MODEL || NEAR_AI_STRUCTURED_DEFAULT;
       const modelFor: Record<TaskName, string> = { discovery_turn: structured, business_analysis: structured };
       const prices = await loadPrices(baseURL, [...new Set(Object.values(modelFor))], p, fetchImpl);
-      const guard = new SpendingGuard({ provider: p, capUsdPerDay: cap, maxCalls, prices, today: deps.today, store: deps.spendStore });
+      const guard = new SpendingGuard({ provider: p, capUsdPerDay: cap, maxCalls, prices, today: deps.today, store: deps.spendStore, preflight: deps.preflight });
       return new OpenAICompatibleProvider({ name: "nearai", baseURL, apiKey, modelFor, extraBody: NEAR_AI_EXTRA_BODY, guard, timeoutMs: Number(env.NEAR_AI_TIMEOUT_MS) || 60_000, fetchImpl });
     }
     case "ollama": {

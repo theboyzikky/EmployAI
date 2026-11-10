@@ -2,18 +2,8 @@ import { randomUUID } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { StartRequest, type ApiError, type StartResponse } from "@/lib/discovery/message";
 import { OWNER_COOKIE, discoveryRepository, hashOwnerToken, newOwnerToken } from "@/lib/discovery/store";
+import { callerKey, limitResponse, limits } from "@/lib/hosted/rate-limit";
 
-// Simple in-memory limiter for the public, unauthenticated endpoint (per IP, per instance).
-const WINDOW_MS = 10 * 60 * 1000;
-const MAX_PER_WINDOW = 20;
-const hits = new Map<string, number[]>();
-function rateLimited(key: string): boolean {
-  const now = Date.now();
-  const recent = (hits.get(key) ?? []).filter(t => now - t < WINDOW_MS);
-  recent.push(now);
-  hits.set(key, recent);
-  return recent.length > MAX_PER_WINDOW;
-}
 
 function error(status: number, code: string, message: string, correlationId: string) {
   const body: ApiError = { error: { code, message, correlation_id: correlationId } };
@@ -34,10 +24,9 @@ export async function POST(request: Request) {
   if (origin && host && new URL(origin).host !== host) {
     return error(403, "FORBIDDEN", "Cross-site requests are not allowed.", correlationId);
   }
-  const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || "local";
-  if (rateLimited(ip)) {
-    return error(429, "RATE_LIMITED", "Too many new conversations. Please wait a few minutes and try again.", correlationId);
-  }
+  // Shared limit per (hashed) IP, across every server instance; refused if the store is down.
+  const limited = await limitResponse([{ limit: limits().startPerIp, subject: await callerKey() }], correlationId);
+  if (limited) return limited;
 
   let json: unknown;
   try { json = await request.json(); } catch { return error(400, "VALIDATION_FAILED", "The request body is not valid JSON.", correlationId); }

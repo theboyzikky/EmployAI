@@ -5,6 +5,7 @@ import { IDEMPOTENCY_KEY, UUID, runResponse, runsRoute } from "@/lib/runs/routes
 import { startRun } from "@/lib/runs/runner";
 import { RUN_MODES, SCENARIOS } from "@/lib/runs/types";
 import { buildRunsView } from "@/lib/runs/view";
+import { callerKey, limitResponse, limits } from "@/lib/hosted/rate-limit";
 
 type Ctx = { params: Promise<{ id: string }> };
 const StartBody = z.object({
@@ -28,6 +29,12 @@ export function POST(request: Request, ctx: Ctx) {
     if (!IDEMPOTENCY_KEY.test(key)) return jsonError(400, "VALIDATION_FAILED", "An Idempotency-Key header is required.", cid);
     const body = await readBody(request, StartBody, cid);
     if ("response" in body) return body.response;
+    if (body.data.mode === "testnet") {
+      // Real testnet runs: a shared daily allowance per workspace and (looser) per network.
+      const lim = limits();
+      const limited = await limitResponse([{ limit: lim.testnetPerWorkspace, subject: business.id }, { limit: lim.testnetPerIp, subject: await callerKey() }], cid);
+      if (limited) return limited;
+    }
     const { runId, created } = await startRun(business.id, { workflowId: body.data.workflow_id, scenario: body.data.scenario, idempotencyKey: key, mode: body.data.mode, confirmRealTransactions: body.data.confirm_real_transactions });
     return runResponse(business, runId, cid, { created, more: true });
   }, { mutation: true });

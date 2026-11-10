@@ -3,6 +3,7 @@ import { readBody } from "@/lib/http";
 import { MAX_MESSAGE_LENGTH, normalizeMessage } from "@/lib/discovery/message";
 import { ownerRoute, viewOrAiError } from "@/lib/discovery/routes";
 import { consultantTurn } from "@/lib/discovery/service";
+import { callerKey, limitResponse, limits } from "@/lib/hosted/rate-limit";
 
 const Body = z.object({
   // Omit content to (re)request the consultant's reply to messages already saved.
@@ -20,6 +21,9 @@ export function POST(request: Request, ctx: RouteContext<"/api/w/[id]/discovery/
   return ownerRoute(request, ctx.params, async (business, cid) => {
     const body = await readBody(request, Body, cid);
     if ("response" in body) return body.response;
+    const lim = limits();
+    const limited = await limitResponse([{ limit: lim.aiPerWorkspace, subject: business.id }, { limit: lim.aiPerIp, subject: await callerKey() }], cid);
+    if (limited) return limited;
     const { aiError } = await consultantTurn(business, { content: body.data.content, clientMessageId: body.data.client_message_id, skip: body.data.skip });
     return viewOrAiError(business, cid, aiError);
   }, { mutation: true });

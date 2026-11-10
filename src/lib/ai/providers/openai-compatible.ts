@@ -63,14 +63,14 @@ export class OpenAICompatibleProvider implements AiProvider {
       response_format: { type: "json_schema", json_schema: { name: req.task, strict: true, schema: toJsonSchema(req.schema) } },
       ...(this.cfg.extraBody?.[model] ?? {}),
     };
-    const r = this.cfg.guard.reserve(model, inputUpper(body), req.maxTokens); // BUDGET_CAP / CALL_LIMIT / PRICE_UNKNOWN
+    const r = await this.cfg.guard.reserve(model, inputUpper(body), req.maxTokens); // BUDGET_CAP / CALL_LIMIT / PRICE_UNKNOWN / ledger unreachable
     let data: Completion, response: Response;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ({ data, response } = (await this.client.chat.completions.create(body as any).withResponse()) as unknown as { data: Completion; response: Response });
-    } catch (e) { this.cfg.guard.fail(r); throw this.mapError(e); }
+    } catch (e) { await this.cfg.guard.fail(r); throw this.mapError(e); }
     const inferenceId = response.headers.get("inference-id") ?? undefined;
-    const costUsd = this.cfg.guard.settle(r, data?.usage, inferenceId); // USAGE_MISSING
+    const costUsd = await this.cfg.guard.settle(r, data?.usage, inferenceId); // USAGE_MISSING
     const choice = data?.choices?.[0];
     if (choice?.finish_reason === "length") throw new AiError("TRUNCATED", this.name, `Output hit max_tokens (${req.maxTokens}) for ${req.task}`);
     let parsed: unknown;

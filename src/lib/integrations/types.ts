@@ -86,6 +86,8 @@ export type ConnectorSetup = {
   secrets: Record<string, string>;
   /** Secrets to show the owner once (e.g. a generated signing secret). Never stored in clear. */
   revealOnce: Record<string, string>;
+  /** External identities this connection answers for on platform-wide webhooks (verified by setup). */
+  routeKeys?: string[];
 };
 
 export interface Connector {

@@ -8,6 +8,7 @@ import { gmailConnector, outlookConnector } from "./email";
 import { instagramConnector } from "./instagram";
 import { facebookConnector, linkedinConnector, tiktokConnector, xConnector, youtubeConnector } from "./social";
 import { telegramConnector } from "./telegram";
+import { telegramBusinessConnector } from "./telegram-business";
 import { webhookConnector } from "./webhook";
 
 registerConnector(webhookConnector);
@@ -15,6 +16,7 @@ registerConnector(instagramConnector);
 registerConnector(gmailConnector);
 registerConnector(outlookConnector);
 registerConnector(telegramConnector);
+registerConnector(telegramBusinessConnector);
 registerConnector(facebookConnector);
 registerConnector(linkedinConnector);
 registerConnector(xConnector);

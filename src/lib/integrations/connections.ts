@@ -74,7 +74,7 @@ function validateGrantsAndRoutes(connectorKey: string, grants: unknown, routes: 
  * Create a connection (or, with replaceId, reconnect an existing one: same id, grants, routes and history;
  * only its credentials change). Returns its view and any secrets to show the owner ONCE.
  */
-export async function createConnection(businessId: string, input: { connector: string; label: string; setup: unknown; grants?: unknown; routes?: unknown; auth?: Omit<ConnectionAuth, "checked_at" | "problem">; replaceId?: string | null }): Promise<{ view: ConnectionView; revealOnce: Record<string, string> }> {
+export async function createConnection(businessId: string, input: { connector: string; label: string; setup: unknown; grants?: unknown; routes?: unknown; auth?: Omit<ConnectionAuth, "checked_at" | "problem">; replaceId?: string | null; initialStatus?: "active" | "pending" }): Promise<{ view: ConnectionView; revealOnce: Record<string, string> }> {
   const connector = connectorFor(input.connector);
   if (!connector) throw new IntegrationError("VALIDATION_FAILED", 400, "Unknown integration.");
   const label = (input.label ?? "").trim();
@@ -89,13 +89,20 @@ export async function createConnection(businessId: string, input: { connector: s
   const cfg = setup.config as { username?: unknown; email?: unknown };
   const account = String(cfg.username ?? cfg.email ?? "") || null;
   const auth: ConnectionAuth = { method: "token", scopes: [], expires_at: null, refreshable: false, ...(input.auth ?? {}), account: input.auth?.account ?? account, problem: null, checked_at: now };
-  const rec: ConnectionRecord = { id, business_id: businessId, connector: connector.key, label, status: "active", reality: connector.reality, config: setup.config, secrets, grants, routes, auth, created_at: now, updated_at: now };
+  // One external account belongs to one business: refuse an identity another workspace already holds.
+  const routeKeys = [...new Set(setup.routeKeys ?? [])];
+  for (const k of routeKeys) {
+    const hit = await discoveryRepository().connectionForRouteKey(k);
+    if (hit && hit.businessId !== businessId) throw new IntegrationError("ACCOUNT_IN_USE", 409, "This account is already connected to another EmployAI workspace. Disconnect it there first.");
+  }
+  const status = input.initialStatus ?? "active";
+  const rec: ConnectionRecord = { id, business_id: businessId, connector: connector.key, label, status, reality: connector.reality, config: setup.config, secrets, grants, routes, auth, route_keys: routeKeys, created_at: now, updated_at: now };
   if (input.replaceId) {
     const view = await discoveryRepository().transact(businessId, s => {
       const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === input.replaceId && x.connector === connector.key);
       if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
       // Grants kept by a reconnect stay; a disconnected connection had its grants cleared and gets none back.
-      Object.assign(c, { status: "active", config: setup.config, secrets, auth, label, updated_at: now });
+      Object.assign(c, { status, config: setup.config, secrets, auth, label, route_keys: routeKeys, updated_at: now });
       audit(s, businessId, "owner", "connection.reconnected", `connection:${c.id}`, "active", c.id, { connector: connector.key, account });
       return connectionView(c);
     });
@@ -254,5 +261,16 @@ export async function checkConnection(businessId: string, connectionId: string):
     if (r.ok && c.status === "reauth_required") { c.status = "active"; if (c.auth) c.auth.problem = null; }
     audit(s, businessId, "owner", "connection.checked", `connection:${c.id}`, r.ok ? "ok" : "failed", c.id, r.ok ? {} : { code: "CHECK_FAILED" });
     return connectionView(c);
+  });
+}
+
+/** Server-side state changes of a connection driven by the provider (e.g. Telegram confirming access). */
+export async function patchConnection<T>(businessId: string, connectionId: string, fn: (c: ConnectionRecord, s: DevState) => T): Promise<T> {
+  return discoveryRepository().transact(businessId, s => {
+    const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId);
+    if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
+    const out = fn(c, s);
+    c.updated_at = new Date().toISOString();
+    return out;
   });
 }

@@ -5,6 +5,7 @@ import { PERMISSIONS, providerByKey, type Permission } from "@/lib/integrations/
 import { checkConnection, CONNECTION_ID, createConnection, disconnectConnection, IntegrationError, setEmployeePermissions } from "@/lib/integrations/connections";
 import { buildHubView } from "@/lib/integrations/hub";
 import { startOAuth } from "@/lib/integrations/oauth";
+import { startTelegramLink } from "@/lib/integrations/telegram-link";
 import { integrationRoute } from "@/lib/integrations/routes";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -39,7 +40,9 @@ export function POST(request: Request, ctx: Ctx) {
     switch (d.action) {
       case "connect_oauth": {
         const origin = new URL(request.url).origin;
-        const redirect = await startOAuth(business.id, d.provider, { origin, returnTo: d.return_to ?? `/w/${business.id}/integrations`, replaceId: d.connection_id ?? null });
+        const returnTo = d.return_to ?? `/w/${business.id}/integrations`;
+        // Telegram has no OAuth: its official business authorization starts with a Telegram deep link.
+        const redirect = d.provider === "telegram" ? await startTelegramLink(business.id, returnTo) : await startOAuth(business.id, d.provider, { origin, returnTo, replaceId: d.connection_id ?? null });
         return jsonOk({ redirect }, cid);
       }
       case "connect_token": {

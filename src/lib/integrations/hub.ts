@@ -7,6 +7,7 @@ import { workforceReadiness, type Readiness } from "@/lib/workforce/readiness";
 import { CAPABILITY_DEFS, PERMISSIONS, PROVIDERS, provides, type Permission, type ProviderCategory, type ProviderSupport } from "./catalogue";
 import { connectionPermissions, heldPermissions } from "./connections";
 import { isOAuthKind, oauthConfigured, oauthEnvNames, registeredCallbackUrl } from "./oauth";
+import { telegramConfigured, telegramEnvNames } from "./telegram-link";
 import type { ConnectionRecord } from "./records";
 import { connectorFor } from "./registry";
 
@@ -20,14 +21,14 @@ import { connectorFor } from "./registry";
  *  not_implemented   listed, but no connector exists in this build
  *  unsupported       no official way to automate it
  */
-export type HubStatus = "connected" | "reauth_required" | "ready_to_connect" | "setup_required" | "not_connected" | "disabled" | "not_implemented" | "unsupported";
+export type HubStatus = "connected" | "reauth_required" | "pending" | "ready_to_connect" | "setup_required" | "not_connected" | "disabled" | "not_implemented" | "unsupported";
 export const HUB_STATUS_LABEL: Record<HubStatus, string> = {
-  connected: "Connected", reauth_required: "Reconnection required", ready_to_connect: "Ready to connect", setup_required: "Developer setup required",
+  connected: "Connected", reauth_required: "Reconnection required", pending: "Waiting for you to finish on the platform", ready_to_connect: "Ready to connect", setup_required: "Developer setup required",
   not_connected: "Not connected", disabled: "Paused", not_implemented: "Available but not implemented", unsupported: "Unsupported",
 };
 
 export type HubConnection = {
-  id: string; status: "connected" | "reauth_required" | "disabled"; expired: boolean;
+  id: string; status: "connected" | "reauth_required" | "pending" | "disabled"; expired: boolean;
   account: string | null; method: string | null; expiresAt: string | null; problem: string | null; checkedAt: string | null; note: string | null;
   permissions: Array<{ permission: Permission; label: string; description: string }>;
   /** employee id → the permission categories the OWNER granted it on this connection */
@@ -80,9 +81,10 @@ function statusOf(c: ConnectionRecord): HubConnection["status"] {
   const expired = !!c.auth?.expires_at && Date.parse(c.auth.expires_at) <= Date.now();
   if (c.status === "active") return expired && !c.auth?.refreshable ? "reauth_required" : "connected";
   if (c.status === "reauth_required") return "reauth_required";
+  if (c.status === "pending") return "pending";
   return "disabled";
 }
-const RANK: HubConnection["status"][] = ["connected", "reauth_required", "disabled"];
+const RANK: HubConnection["status"][] = ["connected", "reauth_required", "pending", "disabled"];
 
 export async function buildHubView(b: BusinessRecord): Promise<HubView> {
   return discoveryRepository().readState(b.id, s => {
@@ -103,8 +105,11 @@ export async function buildHubView(b: BusinessRecord): Promise<HubView> {
         permissions: offered.map(o => ({ permission: o.permission, label: o.label, description: PERMISSIONS[o.permission].description })),
         grants: connector ? Object.fromEntries((wf?.employees ?? []).map(e => [e.id, heldPermissions(c, connector, e.id)])) : {},
       }));
-      const canOAuth = implemented && p.auth.includes("oauth") && !!p.oauth && isOAuthKind(p.oauth);
-      const oauthReady = canOAuth && oauthConfigured(p.oauth!);
+      // "External authorization": OAuth, or the provider's own official flow (Telegram Business).
+      const viaOAuth = implemented && p.auth.includes("oauth") && !!p.oauth && isOAuthKind(p.oauth);
+      const viaExternal = implemented && p.auth.includes("external");
+      const canOAuth = viaOAuth || viaExternal;
+      const oauthReady = viaOAuth ? oauthConfigured(p.oauth!) : viaExternal ? externalReady(p.key) : false;
       const status: HubStatus = p.support === "unsupported" ? "unsupported" : !implemented ? "not_implemented"
         : connections.length ? RANK.find(r => connections.some(c => c.status === r))!
         : canOAuth ? (oauthReady ? "ready_to_connect" : "setup_required")
@@ -124,9 +129,9 @@ export async function buildHubView(b: BusinessRecord): Promise<HubView> {
         canToken: implemented && !canOAuth && p.auth.includes("token"),
         developerToken: implemented && canOAuth && !oauthReady && p.auth.includes("token"),
         canWebhook: implemented && p.auth.includes("signed_webhook"),
-        setupMissing: canOAuth && !oauthReady ? oauthEnvNames(p.oauth!) : [],
-        callbackUrl: canOAuth ? registeredCallbackUrl(p.oauth!) : null,
-        callbackPath: canOAuth ? `/api/oauth/${p.oauth}/callback` : null,
+        setupMissing: canOAuth && !oauthReady ? (viaOAuth ? oauthEnvNames(p.oauth!) : externalEnv(p.key)) : [],
+        callbackUrl: viaOAuth ? registeredCallbackUrl(p.oauth!) : null,
+        callbackPath: viaOAuth ? `/api/oauth/${p.oauth}/callback` : viaExternal ? externalHookPath(p.key) : null,
         checklist: {
           oauthImplemented: canOAuth ? true : null,
           credentialsConfigured: canOAuth ? oauthReady : null,
@@ -148,13 +153,23 @@ export async function buildHubView(b: BusinessRecord): Promise<HubView> {
   });
 }
 
+/** Providers with their own official (non-OAuth) authorization flow. */
+const externalReady = (key: string) => key === "telegram" ? telegramConfigured() : key === "whatsapp_business" ? whatsappConfigured() : false;
+const externalEnv = (key: string) => key === "telegram" ? telegramEnvNames() : key === "whatsapp_business" ? whatsappEnvNames() : [];
+const externalHookPath = (key: string) => key === "telegram" ? "/api/hooks/telegram" : key === "whatsapp_business" ? "/api/hooks/meta" : null;
+const env = (k: string) => (process.env[k] ?? "").trim();
+export const whatsappEnvNames = () => ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", "WHATSAPP_CONFIG_ID", "META_WEBHOOK_VERIFY_TOKEN"];
+export const whatsappConfigured = () => whatsappEnvNames().every(k => !!env(k));
+
 /** For the Workforce page: how each provider can be connected from a "Connect" button right now. */
-export type ConnectMode = "oauth" | "setup_required" | "token" | "webhook" | "unavailable";
+/** oauth: Connect redirects to the platform's authorization · popup: the platform's own sign-up window (WhatsApp) */
+export type ConnectMode = "oauth" | "popup" | "setup_required" | "token" | "webhook" | "unavailable";
 export function connectModes(): Record<string, ConnectMode> {
   return Object.fromEntries(PROVIDERS.map(p => {
     const implemented = p.support === "implemented" && !!(p.connector && connectorFor(p.connector));
     if (!implemented) return [p.key, "unavailable"];
     if (p.auth.includes("oauth") && p.oauth && isOAuthKind(p.oauth)) return [p.key, oauthConfigured(p.oauth) ? "oauth" : "setup_required"];
+    if (p.auth.includes("external")) return [p.key, externalReady(p.key) ? (p.key === "whatsapp_business" ? "popup" : "oauth") : "setup_required"];
     return [p.key, p.auth.includes("token") ? "token" : p.auth.includes("signed_webhook") ? "webhook" : "unavailable"];
   }));
 }

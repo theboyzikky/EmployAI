@@ -39,7 +39,7 @@ function BrandGradients() {
 }
 
 const LABEL: Record<HubStatus, string> = {
-  connected: "Connected", reauth_required: "Reconnection required", ready_to_connect: "Ready to connect", setup_required: "Developer setup required",
+  connected: "Connected", reauth_required: "Reconnection required", pending: "Waiting for you to finish on the platform", ready_to_connect: "Ready to connect", setup_required: "Developer setup required",
   not_connected: "Not connected", disabled: "Paused", not_implemented: "Available but not implemented", unsupported: "Unsupported",
 };
 const SECTION: Record<string, string> = { social: "Connect your social accounts", email: "Connect your email", messaging: "Connect your messaging", business: "Connect your business tools" };
@@ -55,6 +55,7 @@ function pillFor(p: HubProvider): { label: string; cls: string } {
   switch (p.status) {
     case "connected": return { label: "Connected", cls: "conn-pill conn-pill-on" };
     case "reauth_required": return { label: "Reconnect", cls: "conn-pill conn-pill-warn" };
+    case "pending": return { label: "Finish in app", cls: "conn-pill conn-pill-go" };
     case "disabled": return { label: "Paused", cls: "conn-pill conn-pill-warn" };
     case "ready_to_connect": case "not_connected": return { label: "Connect", cls: "conn-pill conn-pill-go" };
     case "setup_required": return { label: "Setup required", cls: "conn-pill conn-pill-soon" };

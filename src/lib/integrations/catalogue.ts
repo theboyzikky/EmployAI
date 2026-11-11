@@ -39,7 +39,8 @@ export const CAPABILITY_DEFS: Record<string, CapabilityDef> = {
 
 export type ProviderCategory = "social" | "email" | "messaging" | "business";
 export type ProviderSupport = "implemented" | "not_implemented" | "unsupported";
-export type ProviderAuth = "oauth" | "token" | "signed_webhook";
+/** oauth: OAuth redirect · external: the provider's own non-OAuth authorization (Telegram Business, WhatsApp Embedded Signup) · token / signed_webhook: developer methods. */
+export type ProviderAuth = "oauth" | "external" | "token" | "signed_webhook";
 export type ProviderDef = {
   key: string;
   name: string;
@@ -87,8 +88,8 @@ export const PROVIDERS: ProviderDef[] = [
     setup: "Not built yet. Needs the WhatsApp Business Platform (Cloud API): a Meta business account, a registered phone number, and approved message templates for messages outside the 24-hour window." },
   { key: "whatsapp_personal", name: "WhatsApp (personal app)", category: "messaging", support: "unsupported", connector: null, auth: [], capabilities: [],
     setup: "Unsupported: there is no official API for personal WhatsApp accounts. Use WhatsApp Business instead." },
-  { key: "telegram", reads: ["Bot name","Messages people send to the bot"], works: ["read_social_messages","reply_to_customer","send_message"], name: "Telegram", category: "messaging", support: "implemented", connector: "telegram", auth: ["token"], capabilities: ["read_social_messages", "reply_to_customer", "send_message"],
-    setup: "Create a bot with @BotFather and paste its bot token. Incoming messages need the app at a public https address (EMPLOYAI_PUBLIC_URL) so Telegram can deliver them." },
+  { key: "telegram", reads: ["Your Telegram name", "Messages customers send to your Telegram business account"], works: ["read_social_messages", "reply_to_customer"], name: "Telegram", category: "messaging", support: "implemented", connector: "telegram_business", auth: ["external"], capabilities: ["read_social_messages", "reply_to_customer", "send_message"],
+    setup: "Connect opens Telegram: tap Start in EmployAI's bot, then add it under Settings → Telegram Business → Chatbots and allow it to reply (Telegram shows the permissions). Needs Telegram Premium on the owner's account. The operator creates the bot once with @BotFather, turns on Business Mode, sets TELEGRAM_BOT_TOKEN / TELEGRAM_BOT_USERNAME / TELEGRAM_WEBHOOK_SECRET and registers the webhook (scripts/telegram-bot-setup.mjs)." },
   { key: "webchat", name: "Website chat", category: "messaging", support: "not_implemented", connector: null, auth: [], capabilities: ["read_social_messages", "reply_to_customer"],
     setup: "Not built yet. Would be an embeddable chat widget served by EmployAI." },
   // Business systems

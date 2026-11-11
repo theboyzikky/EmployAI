@@ -95,8 +95,8 @@ const FLOWS: Record<OAuthKind, FlowSpec> = {
   instagram: {
     name: "Instagram", clientIdEnv: "INSTAGRAM_APP_ID", secretEnv: "INSTAGRAM_APP_SECRET",
     authorizeUrl: "https://www.instagram.com/oauth/authorize", pkce: false, scopeSep: ",", extra: { response_type: "code" },
-    scopes: { instagram: ["instagram_business_basic", "instagram_business_content_publish"] },
-    essential: { instagram: ["instagram_business_content_publish"] },
+    scopes: { instagram: ["instagram_business_basic", "instagram_business_content_publish"], instagram_dm: ["instagram_business_basic", "instagram_business_manage_messages"] },
+    essential: { instagram: ["instagram_business_content_publish"], instagram_dm: ["instagram_business_manage_messages"] },
     async exchange(code, redirectUri) {
       const r = await postForm("https://api.instagram.com/oauth/access_token", { client_id: env("INSTAGRAM_APP_ID"), client_secret: env("INSTAGRAM_APP_SECRET"), grant_type: "authorization_code", redirect_uri: redirectUri, code });
       const row = (Array.isArray(r.json.data) ? r.json.data[0] : r.json) as Record<string, unknown> | undefined;
@@ -140,8 +140,8 @@ const FLOWS: Record<OAuthKind, FlowSpec> = {
   facebook: {
     name: "Facebook", clientIdEnv: "FACEBOOK_APP_ID", secretEnv: "FACEBOOK_APP_SECRET",
     authorizeUrl: "https://www.facebook.com/v27.0/dialog/oauth", pkce: false, scopeSep: ",", extra: { response_type: "code" },
-    scopes: { facebook: ["pages_show_list", "pages_read_engagement", "pages_manage_posts"] },
-    essential: { facebook: ["pages_show_list", "pages_manage_posts"] },
+    scopes: { facebook: ["pages_show_list", "pages_read_engagement", "pages_manage_posts"], messenger: ["pages_show_list", "pages_manage_metadata", "pages_messaging"] },
+    essential: { facebook: ["pages_show_list", "pages_manage_posts"], messenger: ["pages_show_list", "pages_manage_metadata", "pages_messaging"] },
     async exchange(code, redirectUri) {
       const g = "https://graph.facebook.com/v27.0";
       const short = await getJson(`${g}/oauth/access_token?${form({ client_id: env("FACEBOOK_APP_ID"), redirect_uri: redirectUri, client_secret: env("FACEBOOK_APP_SECRET"), code })}`);

@@ -98,10 +98,38 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
   async function togglePermission(connId: string, employeeId: string, current: Permission[], perm: Permission, on: boolean) {
     await post(`perm-${connId}-${employeeId}`, { action: "permissions", connection_id: connId, employee_id: employeeId, permissions: on ? [...current, perm] : current.filter(x => x !== perm) });
   }
+  /**
+   * WhatsApp: Meta's official Embedded Signup window (Facebook Login for Business with the operator's
+   * configuration). The owner signs in and approves on Meta; the window hands back a short-lived code and
+   * the chosen account ids, which the server exchanges and verifies before anything is stored.
+   */
+  async function whatsappSignup(p: HubProvider, connectionId: string | null) {
+    if (!p.launch) return;
+    setBusy(`oauth-${p.key}`); setError(null);
+    try {
+      const FB = await loadFacebookSdk(p.launch.appId);
+      let session: { waba_id?: string; phone_number_id?: string } | null = null;
+      const onMessage = (e: MessageEvent) => {
+        if (!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname)) return;              // only Meta's window
+        try { const d = typeof e.data === "string" ? JSON.parse(e.data) : e.data; if (d?.type === "WA_EMBEDDED_SIGNUP" && d.event === "FINISH") session = d.data ?? null; } catch { /* other messages */ }
+      };
+      window.addEventListener("message", onMessage);
+      const code = await new Promise<string | null>(resolve => FB.login((r: { authResponse?: { code?: string } }) => resolve(r?.authResponse?.code ?? null),
+        { config_id: p.launch!.configId, response_type: "code", override_default_response_type: true, extras: { setup: {}, sessionInfoVersion: "3" } }));
+      for (let i = 0; i < 20 && code && !session; i++) await new Promise(r => setTimeout(r, 150));   // the window posts its message around the callback
+      window.removeEventListener("message", onMessage);
+      const sess = session as { waba_id?: string; phone_number_id?: string } | null;
+      if (!code || !sess?.waba_id || !sess.phone_number_id) { setError("WhatsApp wasn't connected: the sign-up window was closed before it finished."); setBusy(null); return; }
+      setBusy(null);
+      await post(`token-${p.key}`, { action: "connect_whatsapp", code, waba_id: String(sess.waba_id), phone_number_id: String(sess.phone_number_id), connection_id: connectionId ?? p.reuseId });
+    } catch { setError("Meta's sign-up window couldn't be opened. Check that pop-ups are allowed, then try again."); setBusy(null); }
+  }
+  const connectProvider = (p: HubProvider, connectionId: string | null) => p.launch ? whatsappSignup(p, connectionId) : oauthConnect(p, connectionId);
+
   function onPill(p: HubProvider) {
     const broken = p.connections.find(c => c.status === "reauth_required");
-    if (p.status === "ready_to_connect") return void oauthConnect(p, null);
-    if (broken && p.oauthReady) return void oauthConnect(p, broken.id);
+    if (p.status === "ready_to_connect") return void connectProvider(p, null);
+    if (broken && p.oauthReady) return void connectProvider(p, broken.id);
     setOpen(open === p.key ? null : p.key);
   }
 
@@ -204,7 +232,7 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
                           {c.problem && <p className="mt-1 text-sm text-danger">{c.problem}</p>}
                           {c.note && <p className="mt-1 text-xs text-muted">{c.note}</p>}
                           <div className="mt-2 flex flex-wrap gap-2">
-                            {c.status === "reauth_required" && p.oauthReady && <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => oauthConnect(p, c.id)}>Reconnect on {p.name}</button>}
+                            {c.status === "reauth_required" && p.oauthReady && <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => connectProvider(p, c.id)}>Reconnect on {p.name}</button>}
                             <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => post(`check-${c.id}`, { action: "check", connection_id: c.id })}>{busy === `check-${c.id}` ? "Checking…" : "Check"}</button>
                             <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => { if (window.confirm(`Disconnect ${p.name}? EmployAI deletes the stored access and every employee permission on it.`)) void post(`disc-${c.id}`, { action: "disconnect", connection_id: c.id }); }}>Disconnect</button>
                           </div>
@@ -236,7 +264,7 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
 
                       {p.support === "implemented" && (
                         <>
-                          {p.oauthReady && <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => oauthConnect(p, null)}>{p.connections.length ? `Connect another ${p.name} account` : `Connect on ${p.name}`}</button>}
+                          {p.oauthReady && <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => connectProvider(p, null)}>{p.connections.length ? `Connect another ${p.name} account` : `Connect on ${p.name}`}</button>}
                           {p.canToken && (
                             <div className="stack-sm">
                               <input className="field" type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder="Bot token from @BotFather" aria-label={`${p.name} bot token`} />
@@ -268,4 +296,18 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
       ))}
     </div>
   );
+}
+
+/** Meta's JavaScript SDK, loaded only when the owner connects WhatsApp (the official Embedded Signup host). */
+type FbSdk = { init(o: Record<string, unknown>): void; login(cb: (r: { authResponse?: { code?: string } }) => void, o: Record<string, unknown>): void };
+function loadFacebookSdk(appId: string): Promise<FbSdk> {
+  const w = window as unknown as { FB?: FbSdk; fbAsyncInit?: () => void };
+  if (w.FB) return Promise.resolve(w.FB);
+  return new Promise((resolve, reject) => {
+    w.fbAsyncInit = () => { w.FB!.init({ appId, autoLogAppEvents: true, xfbml: false, version: "v27.0" }); resolve(w.FB!); };
+    const el = document.createElement("script");
+    el.src = "https://connect.facebook.net/en_US/sdk.js"; el.async = true; el.defer = true; el.crossOrigin = "anonymous";
+    el.onerror = () => reject(new Error("sdk"));
+    document.body.appendChild(el);
+  });
 }

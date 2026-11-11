@@ -199,6 +199,7 @@ export async function ownerReply(businessId: string, convId: string, text: strin
   if (!t || t.length > 2000) throw new ServiceError("VALIDATION_FAILED", 400, "Write a reply first.");
   let msgId = "";
   await ownerEdit(businessId, convId, (s, c) => {
+    if (WINDOW_24H.includes(c.channel) && !windowOpen(c)) throw new ServiceError("WINDOW_CLOSED", 409, "This customer's 24-hour reply window has closed; the platform only allows approved message templates.");
     const m: ConvMessage = { id: randomUUID(), direction: "out", text: t, at: now(), status: "pending_approval", by: "owner", provider_id: null, in_reply_to: null, note: "Written by you." };
     c.messages.push(m); msgId = m.id;
   });

@@ -14,6 +14,7 @@ const Provider = z.string().regex(/^[a-z][a-z0-9_]{1,31}$/);
 const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("connect_oauth"), provider: Provider, connection_id: ConnId.nullable().optional(), return_to: z.string().max(200).optional() }).strict(),
   z.object({ action: z.literal("connect_token"), provider: Provider, token: z.string().min(10).max(1024), connection_id: ConnId.nullable().optional() }).strict(),
+  z.object({ action: z.literal("connect_whatsapp"), code: z.string().min(10).max(2048), waba_id: z.string().regex(/^d{5,25}$/), phone_number_id: z.string().regex(/^d{5,25}$/), connection_id: ConnId.nullable().optional() }).strict(),
   z.object({ action: z.literal("connect_webhook"), label: z.string().min(1).max(60) }).strict(),
   z.object({ action: z.literal("disconnect"), connection_id: ConnId }).strict(),
   z.object({ action: z.literal("check"), connection_id: ConnId }).strict(),
@@ -50,6 +51,11 @@ export function POST(request: Request, ctx: Ctx) {
         if (!p || p.support !== "implemented" || !p.auth.includes("token") || !p.connector) throw new IntegrationError("NOT_SUPPORTED", 400, "This provider can't be connected with a token.");
         const setup = p.key === "telegram" ? { bot_token: d.token } : { access_token: d.token };
         await createConnection(business.id, { connector: p.connector, label: p.name, setup, replaceId: d.connection_id ?? null });
+        break;
+      }
+      case "connect_whatsapp": {
+        // From Meta's Embedded Signup window: verified server-side (token grants, number ownership) before storing.
+        await createConnection(business.id, { connector: "whatsapp", label: "WhatsApp Business", setup: { signup: { code: d.code, waba_id: d.waba_id, phone_number_id: d.phone_number_id } }, replaceId: d.connection_id ?? null });
         break;
       }
       case "connect_webhook": {

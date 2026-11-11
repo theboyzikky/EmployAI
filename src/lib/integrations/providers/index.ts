@@ -6,6 +6,7 @@ import { registerConnector } from "../registry";
 import "../oauth";                       // registers the OAuth token refresher used before every action
 import { gmailConnector, outlookConnector } from "./email";
 import { instagramConnector } from "./instagram";
+import { instagramDmConnector, messengerConnector, whatsappConnector } from "./meta-messaging";
 import { facebookConnector, linkedinConnector, tiktokConnector, xConnector, youtubeConnector } from "./social";
 import { telegramConnector } from "./telegram";
 import { telegramBusinessConnector } from "./telegram-business";
@@ -17,6 +18,9 @@ registerConnector(gmailConnector);
 registerConnector(outlookConnector);
 registerConnector(telegramConnector);
 registerConnector(telegramBusinessConnector);
+registerConnector(instagramDmConnector);
+registerConnector(messengerConnector);
+registerConnector(whatsappConnector);
 registerConnector(facebookConnector);
 registerConnector(linkedinConnector);
 registerConnector(xConnector);

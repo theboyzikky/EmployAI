@@ -85,7 +85,11 @@ describe("the catalogue never shows a provider as more than it is", () => {
     const f = await boutique();
     const v = await buildHubView(await f.biz());
     const st = (k: string) => v.providers.find(p => p.key === k)!;
-    expect(["whatsapp_business", "webchat", "imap_smtp", "google_calendar", "google_drive"].map(k => st(k).status)).toEqual(Array(5).fill("not_implemented"));
+    expect(["webchat", "imap_smtp", "google_calendar", "google_drive"].map(k => st(k).status)).toEqual(Array(4).fill("not_implemented"));
+    expect(st("linkedin_messaging").status).toBe("unsupported");
+    // WhatsApp, Instagram DMs and Messenger: built, waiting for the operator's Meta app.
+    expect(["whatsapp_business", "instagram_dm", "messenger"].map(k => [st(k).status, st(k).canOAuth])).toEqual(Array(3).fill(["setup_required", true]));
+    expect(st("whatsapp_business")).toMatchObject({ launch: null, callbackPath: "/api/hooks/meta", setupMissing: ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", "WHATSAPP_CONFIG_ID", "META_WEBHOOK_VERIFY_TOKEN"] });
     // Every social network connects by redirect; without the operator's developer app it says exactly what's missing.
     expect(["instagram", "facebook", "tiktok", "linkedin", "x", "youtube"].map(k => [st(k).status, st(k).canOAuth])).toEqual(Array(6).fill(["setup_required", true]));
     expect(st("facebook").checklist).toEqual({ oauthImplemented: true, credentialsConfigured: false, accountConnected: false, dataAccess: ["Pages you manage (to pick the business Page)", "Recent Page posts (only to confirm a publication)"], actions: ["Publish social posts"], backgroundAutomation: true });

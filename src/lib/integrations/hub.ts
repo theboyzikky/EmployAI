@@ -63,6 +63,8 @@ export type HubProvider = {
   callbackUrl: string | null;
   callbackPath: string | null;
   checklist: HubChecklist;
+  /** Public values Meta's Embedded Signup window needs (WhatsApp only; never secrets). */
+  launch: { appId: string; configId: string } | null;
   /** The most recent failed connection attempt (last 24 h, after the last success), in the provider's words. */
   lastFailure: { at: string; outcome: string; reason: string } | null;
   connections: HubConnection[];
@@ -140,6 +142,7 @@ export async function buildHubView(b: BusinessRecord): Promise<HubView> {
           actions: implemented ? works : [],
           backgroundAutomation: implemented && !!connector && Object.keys(connector.actions).length > 0,
         },
+        launch: p.key === "whatsapp_business" && oauthReady ? { appId: env("FACEBOOK_APP_ID"), configId: env("WHATSAPP_CONFIG_ID") } : null,
         lastFailure: failure ? { at: failure.created_at, outcome: failure.status, reason: typeof fp?.reason === "string" ? fp.reason : "The connection didn't complete." } : null,
         connections, reuseId: mine.find(c => c.status === "disconnected")?.id ?? null,
       };

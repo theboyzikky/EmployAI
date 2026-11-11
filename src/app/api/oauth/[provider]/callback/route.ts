@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import "@/lib/integrations/providers";   // connectors used to verify the account
+import { wake } from "@/lib/automation/dispatch";
 import { getOwnedBusiness } from "@/lib/discovery/access";
 import { completeOAuth, isOAuthKind, peekState } from "@/lib/integrations/oauth";
 
@@ -25,6 +26,7 @@ export async function GET(request: Request, ctx: Ctx) {
   try {
     const r = await completeOAuth(provider, state, pending, { code: url.searchParams.get("code"), error: url.searchParams.get("error") });
     outcome = r.outcome; returnTo = r.returnTo;
+    if (outcome === "connected") await wake(pending.b);   // e.g. a mailbox's first check starts now
   } catch { outcome = "error"; }
   const back = new URL(returnTo, url.origin);
   back.searchParams.set("oauth", outcome);

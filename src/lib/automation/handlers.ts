@@ -9,7 +9,10 @@ import "server-only";
 import { discoveryRepository } from "@/lib/discovery/store";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import { driveAction } from "@/lib/integrations/actions";
-import { audit } from "@/lib/integrations/connections";
+import { audit, loadConnectionForUse, markReauthRequired, patchConnection, ReconnectRequired } from "@/lib/integrations/connections";
+import { storeInboundEvents } from "@/lib/integrations/inbox";
+import { connectorFor } from "@/lib/integrations/registry";
+import { enqueueTaskIn } from "./tasks";
 import type { InboundEventRecord } from "@/lib/integrations/records";
 import type { TaskRecord } from "./records";
 import { registerTaskHandler, type TaskResult } from "./worker";
@@ -61,6 +64,27 @@ registerTaskHandler("process_event", async (task: TaskRecord): Promise<TaskResul
     audit(s, task.business_id, "system", "event.awaiting_automation", `event:${ev.id}`, "routed", ev.id, { agent: ev.routed_to, type: ev.type });
   });
   return { kind: "done" };
+});
+
+/**
+ * poll_mailbox: one connection's scheduled check for new messages (Gmail, Outlook). New messages are
+ * stored (once each) BEFORE the cursor advances, so a crash can only cause a deduplicated re-read.
+ * Stops by itself when the connection is no longer active; credentials refused → reconnection required.
+ */
+export const MAIL_POLL_MS = () => Math.max(60, Number(process.env.EMPLOYAI_MAIL_POLL_SECONDS) || 300) * 1000;
+registerTaskHandler("poll_mailbox", async (task: TaskRecord): Promise<TaskResult> => {
+  const conn = await loadConnectionForUse(task.business_id, task.ref).catch(e => { if (e instanceof ReconnectRequired) return null; throw e; });
+  if (!conn || conn.record.status !== "active") return { kind: "cancelled", reason: "The connection isn't active." };
+  const k = connectorFor(conn.record.connector);
+  if (!k?.poll) return { kind: "cancelled", reason: "This connector isn't polled." };
+  const r = await k.poll({ config: conn.record.config, secrets: conn.secrets });
+  if ("error" in r) {
+    if (r.error === "auth") { await markReauthRequired(task.business_id, task.ref, r.detail); return { kind: "cancelled", reason: r.detail }; }
+    return { kind: "later", atIso: soon(MAIL_POLL_MS()) };
+  }
+  if (r.events.length) await storeInboundEvents(task.business_id, conn.record.id, conn.record.connector, conn.record.routes, r.events, (s, ev) => { enqueueTaskIn(s, ev.business_id, { kind: "process_event", ref: ev.id, dedupeKey: `event:${ev.id}` }); });
+  await patchConnection(task.business_id, task.ref, c => { c.config = { ...c.config, ...r.config }; });
+  return { kind: "later", atIso: soon(MAIL_POLL_MS()) };
 });
 
 export const INTEGRATION_HANDLERS_REGISTERED = true;

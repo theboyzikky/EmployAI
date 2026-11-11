@@ -102,6 +102,11 @@ export interface Connector {
   setup(input: unknown): Promise<ConnectorSetup> | ConnectorSetup;
   /** Optional: re-check that the stored credentials still work (owner's "Check connection"). */
   checkAuth?(ctx: { config: Readonly<Record<string, unknown>>; secrets: Readonly<Record<string, string>> }): Promise<{ ok: true; detail?: string } | { ok: false; reauth: boolean; detail: string }>;
+  /**
+   * Optional: fetch new inbound events (providers without a usable push mechanism, e.g. mailboxes).
+   * Run by the durable worker on a schedule; returns events plus the updated cursor stored in config.
+   */
+  poll?(ctx: { config: Readonly<Record<string, unknown>>; secrets: Readonly<Record<string, string>> }): Promise<{ events: InboundEvent[]; config: Record<string, unknown> } | { error: "auth" | "temporary"; detail: string }>;
   /** Optional: called once after a connection is created (e.g. register a webhook with the provider). */
   activate?(ctx: { connectionId: string; publicUrl: string | null; config: Readonly<Record<string, unknown>>; secrets: Readonly<Record<string, string>> }): Promise<{ ok: boolean; detail: string }>;
   /** Verify and parse an inbound request. Absent = this connector receives no events. */

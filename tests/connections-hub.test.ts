@@ -44,7 +44,7 @@ function stubProviders() {
   vi.spyOn(oauthNet, "fetch").mockImplementation(async (url: string, init: RequestInit) => {
     const body = new URLSearchParams(String(init.body ?? ""));
     if (url === "https://oauth2.googleapis.com/token" && body.get("grant_type") === "authorization_code")
-      return json({ access_token: "ya29.access-1", refresh_token: "1//refresh-1", expires_in: 3600, scope: tokenMode === "no_send_scope" ? "openid https://www.googleapis.com/auth/userinfo.email" : "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.send" });
+      return json({ access_token: "ya29.access-1", refresh_token: "1//refresh-1", expires_in: 3600, scope: tokenMode === "no_send_scope" ? "openid https://www.googleapis.com/auth/userinfo.email" : "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly" });
     if (url === "https://oauth2.googleapis.com/token" && body.get("grant_type") === "refresh_token")
       return tokenMode === "invalid_grant" ? json({ error: "invalid_grant" }, 400) : json({ access_token: "ya29.access-2", expires_in: 3600, scope: "https://www.googleapis.com/auth/gmail.send" });
     return json({ error: "unexpected" }, 400);
@@ -79,7 +79,7 @@ describe("the catalogue never shows a provider as more than it is", () => {
     // What a provider claims to perform is exactly what its connector implements.
     for (const p of PROVIDERS.filter(x => x.support === "implemented")) {
       const k = connectorFor(p.connector!)!;
-      const real = p.capabilities.filter(cap => Object.values(k.actions).some(a => provides(a, cap)) || (cap === "read_social_messages" && k.eventTypes.includes("message.received")) || (cap === "receive_events" && k.eventTypes.length > 0));
+      const real = p.capabilities.filter(cap => Object.values(k.actions).some(a => provides(a, cap)) || ((cap === "read_social_messages" || cap === "read_email") && k.eventTypes.includes("message.received")) || (cap === "receive_events" && k.eventTypes.length > 0));
       expect([p.key, [...real].sort()]).toEqual([p.key, [...(p.works ?? [])].sort()]);
     }
     const f = await boutique();
@@ -186,7 +186,7 @@ describe("official OAuth: state, PKCE, minimum scopes, encrypted tokens, refresh
   test("the authorization request is Google's official one, with PKCE and only the send scope; the state is single use", async () => {
     const g = await gmail();
     expect(g.url.origin + g.url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
-    expect(g.url.searchParams.get("scope")!.split(" ")).toEqual(["openid", "email", "https://www.googleapis.com/auth/gmail.send"]);
+    expect(g.url.searchParams.get("scope")!.split(" ")).toEqual(["openid", "email", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]);
     expect(g.url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(g.url.searchParams.get("access_type")).toBe("offline");
     expect(g.url.searchParams.get("redirect_uri")).toBe("http://localhost:3101/api/oauth/google/callback");

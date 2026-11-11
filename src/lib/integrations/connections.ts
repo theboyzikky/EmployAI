@@ -8,6 +8,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { AGENT_ORDER } from "@/lib/catalogue/catalogue";
 import { discoveryRepository, type DevState } from "@/lib/discovery/store";
 import type { ActivityEvent, Actor } from "@/lib/runs/types";
+import { enqueueTaskIn } from "@/lib/automation/tasks";
 import { decryptSecrets, encryptSecrets } from "./credentials";
 import { PERMISSIONS, permissionOf, type Permission } from "./catalogue";
 import type { ConnectionAuth, ConnectionGrant, ConnectionRecord, ConnectionRoute } from "./records";
@@ -104,6 +105,7 @@ export async function createConnection(businessId: string, input: { connector: s
       // Grants kept by a reconnect stay; a disconnected connection had its grants cleared and gets none back.
       Object.assign(c, { status, config: setup.config, secrets, auth, label, route_keys: routeKeys, updated_at: now });
       audit(s, businessId, "owner", "connection.reconnected", `connection:${c.id}`, "active", c.id, { connector: connector.key, account });
+      if (connector.poll && status === "active") enqueueTaskIn(s, businessId, { kind: "poll_mailbox", ref: c.id, dedupeKey: `poll:${c.id}` });
       return connectionView(c);
     });
     await activateConnection(businessId, id, connector, setup);
@@ -115,6 +117,8 @@ export async function createConnection(businessId: string, input: { connector: s
     const list = ((s.connections ??= {})[businessId] ??= []);
     if (list.length >= MAX_CONNECTIONS_PER_BUSINESS) throw new IntegrationError("LIMIT_REACHED", 409, `A business can have up to ${MAX_CONNECTIONS_PER_BUSINESS} connections.`);
     list.push(rec);
+    // Providers without push (mailboxes): the durable worker checks for new messages on a schedule.
+    if (connector.poll && status === "active") enqueueTaskIn(s, businessId, { kind: "poll_mailbox", ref: rec.id, dedupeKey: `poll:${rec.id}` });
     audit(s, businessId, "owner", "connection.created", `connection:${id}`, "active", id, { connector: connector.key, reality: connector.reality, grants: rec.grants.map(g => g.agent), routes: routes.length });
   });
   await activateConnection(businessId, id, connector, setup);

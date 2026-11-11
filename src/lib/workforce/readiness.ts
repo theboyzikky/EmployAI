@@ -3,7 +3,7 @@
 // reconnect, and what isn't possible yet because the skill or every provider is not built.
 // This is what lets EmployAI prepare the work it can do and ask only for the missing connections.
 import type { DevState } from "@/lib/discovery/store";
-import { CAPABILITY_DEFS } from "@/lib/integrations/catalogue";
+import { CAPABILITY_DEFS, PERMISSIONS, type Permission } from "@/lib/integrations/catalogue";
 import { resolveCapability, type ProviderRef } from "@/lib/integrations/resolve";
 import { SKILLS } from "./registry";
 
@@ -12,7 +12,7 @@ export type Readiness = {
   ready: Array<ReadinessItem & { via: string }>;
   /** One entry per missing capability, with every employee/skill that needs it and where to connect it. */
   missing: Array<{ capability: string; label: string; neededFor: ReadinessItem[]; providers: ProviderRef[]; why: string }>;
-  needsPermission: Array<ReadinessItem & { connectionId: string; provider: ProviderRef; account: string | null }>;
+  needsPermission: Array<ReadinessItem & { connectionId: string; provider: ProviderRef; account: string | null; permission: Permission; permissionLabel: string }>;
   reconnect: Array<ReadinessItem & { connectionId: string; provider: ProviderRef; problem: string | null }>;
   notYet: Array<ReadinessItem & { reason: string }>;
   demo: ReadinessItem[];
@@ -30,11 +30,11 @@ export function workforceReadiness(s: DevState, businessId: string): Readiness |
     if (def.status === "planned") { out.notYet.push({ ...item, reason: "This skill isn't built yet." }); continue; }
     if (def.status === "preview") { out.demo.push(item); continue; }
     if (!cap) { out.ready.push({ ...item, via: "EmployAI" }); continue; }
-    // Before approval the planned employees hold no grants yet: a connected account counts as ready.
+    // A connected account is used only after the owner explicitly grants this employee the permission.
     const r = resolveCapability(s, businessId, e.id, cap);
     if (r.state === "built_in") out.ready.push({ ...item, via: r.label });
     else if (r.state === "ready") out.ready.push({ ...item, via: `${r.provider.name}${r.account ? ` (${r.account})` : ""}` });
-    else if (r.state === "needs_permission") (wf.status === "approved" ? out.needsPermission.push({ ...item, connectionId: r.connectionId, provider: r.provider, account: r.account }) : out.ready.push({ ...item, via: `${r.provider.name}${r.account ? ` (${r.account})` : ""} (granted on approval)` }));
+    else if (r.state === "needs_permission") out.needsPermission.push({ ...item, connectionId: r.connectionId, provider: r.provider, account: r.account, permission: CAPABILITY_DEFS[cap]?.permission ?? "manage", permissionLabel: PERMISSIONS[CAPABILITY_DEFS[cap]?.permission ?? "manage"].label });   // connected, but the owner hasn't granted it yet
     else if (r.state === "reconnect") out.reconnect.push({ ...item, connectionId: r.connectionId, provider: r.provider, problem: r.problem });
     else if (r.state === "not_built") out.notYet.push({ ...item, reason: r.providers.length ? `No connector for ${r.providers.map(p => p.name).join(", ")} is built yet.` : "No provider offers this yet." });
     else {

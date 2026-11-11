@@ -9,7 +9,7 @@ import { AGENT_ORDER } from "@/lib/catalogue/catalogue";
 import { discoveryRepository, type DevState } from "@/lib/discovery/store";
 import type { ActivityEvent, Actor } from "@/lib/runs/types";
 import { decryptSecrets, encryptSecrets } from "./credentials";
-import { PERMISSIONS, permissionOf, provides, type Permission } from "./catalogue";
+import { PERMISSIONS, permissionOf, type Permission } from "./catalogue";
 import type { ConnectionAuth, ConnectionGrant, ConnectionRecord, ConnectionRoute } from "./records";
 import { connectorFor } from "./registry";
 import type { Connector } from "./types";
@@ -65,21 +65,10 @@ function validateGrantsAndRoutes(connectorKey: string, grants: unknown, routes: 
 }
 
 /**
- * Least-privilege defaults: each action is granted ONLY to workforce employees whose skills need one of
- * its capabilities (provider-independent: "publish_social_post" → whoever publishes, on any platform).
- * Nobody else gets anything. The owner can change every grant afterwards (setEmployeePermissions), and
- * per-item approvals (posts, payments) still apply on top.
+ * Connecting an account grants NOTHING to any employee. Account connections and employee permissions are
+ * separate: the owner explicitly grants each employee the permissions it needs (setEmployeePermissions,
+ * or one click from the readiness panel), and per-item approvals (posts, payments) still apply on top.
  */
-export function applyDefaultGrants(s: DevState, businessId: string, rec: ConnectionRecord, connector: Connector): void {
-  const wf = s.businesses[businessId]?.workforce;
-  for (const [action, spec] of Object.entries(connector.actions)) {
-    if (!spec.capability) continue;
-    for (const e of wf?.employees ?? []) if (e.integrations.some(i => provides(spec, i.capability))) {
-      const g = rec.grants.find(x => x.agent === e.id);
-      if (g) { if (!g.actions.includes(action)) g.actions.push(action); } else rec.grants.push({ agent: e.id, actions: [action] });
-    }
-  }
-}
 
 /**
  * Create a connection (or, with replaceId, reconnect an existing one: same id, grants, routes and history;
@@ -105,9 +94,8 @@ export async function createConnection(businessId: string, input: { connector: s
     const view = await discoveryRepository().transact(businessId, s => {
       const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === input.replaceId && x.connector === connector.key);
       if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
-      const wasDisconnected = c.status === "disconnected";
+      // Grants kept by a reconnect stay; a disconnected connection had its grants cleared and gets none back.
       Object.assign(c, { status: "active", config: setup.config, secrets, auth, label, updated_at: now });
-      if (wasDisconnected || c.grants.length === 0) applyDefaultGrants(s, businessId, c, connector);
       audit(s, businessId, "owner", "connection.reconnected", `connection:${c.id}`, "active", c.id, { connector: connector.key, account });
       return connectionView(c);
     });
@@ -117,7 +105,6 @@ export async function createConnection(businessId: string, input: { connector: s
   await discoveryRepository().transact(businessId, s => {
     if (!s.businesses[businessId]) throw new IntegrationError("NOT_FOUND", 404, "Not found.");
     for (const who of [...grants.map(g => g.agent), ...routes.map(r => r.agent)]) if (!employeeKnown(s, businessId, who)) throw new IntegrationError("VALIDATION_FAILED", 400, "A grant or route names an employee this business doesn't have.");
-    if (grants.length === 0) applyDefaultGrants(s, businessId, rec, connector);
     const list = ((s.connections ??= {})[businessId] ??= []);
     if (list.length >= MAX_CONNECTIONS_PER_BUSINESS) throw new IntegrationError("LIMIT_REACHED", 409, `A business can have up to ${MAX_CONNECTIONS_PER_BUSINESS} connections.`);
     list.push(rec);
@@ -189,8 +176,19 @@ export function connectionPermissions(connector: Connector): Array<{ permission:
   return [...out.entries()].map(([permission, v]) => ({ permission, label: PERMISSIONS[permission].label, ...v }));
 }
 
-/** Owner sets exactly which permission categories one employee holds on one connection. */
-export async function setEmployeePermissions(businessId: string, connectionId: string, employeeId: string, permissions: Permission[]): Promise<ConnectionView> {
+/** The permission categories an employee currently holds on a connection. */
+export function heldPermissions(c: ConnectionRecord, connector: Connector, employeeId: string): Permission[] {
+  return connectionPermissions(connector).filter(o =>
+    (o.actions.length > 0 && o.actions.every(a => c.grants.some(g => g.agent === employeeId && g.actions.includes(a)))) ||
+    (o.actions.length === 0 && o.viaRoutes && c.routes.some(r => r.agent === employeeId && r.event_type === "message.received")),
+  ).map(o => o.permission);
+}
+
+/**
+ * Owner sets exactly which permission categories one employee holds on one connection
+ * (or, with { add }, grants one more on top of what it holds — the readiness panel's one-click "Allow").
+ */
+export async function setEmployeePermissions(businessId: string, connectionId: string, employeeId: string, permissionsOrAdd: Permission[] | { add: Permission }): Promise<ConnectionView> {
   return discoveryRepository().transact(businessId, s => {
     const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId);
     if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
@@ -199,6 +197,7 @@ export async function setEmployeePermissions(businessId: string, connectionId: s
     const connector = connectorFor(c.connector);
     if (!connector) throw new IntegrationError("CONNECTOR_UNAVAILABLE", 409, "This integration isn't available on this server.");
     const offered = connectionPermissions(connector);
+    const permissions = Array.isArray(permissionsOrAdd) ? permissionsOrAdd : [...heldPermissions(c, connector, employeeId), permissionsOrAdd.add];
     const want = new Set(permissions.filter(p => offered.some(o => o.permission === p)));
     const actions = offered.filter(o => want.has(o.permission)).flatMap(o => o.actions);
     c.grants = c.grants.filter(g => g.agent !== employeeId);

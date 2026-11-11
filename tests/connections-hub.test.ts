@@ -87,15 +87,24 @@ describe("the catalogue never shows a provider as more than it is", () => {
     const st = (k: string) => v.providers.find(p => p.key === k)!;
     expect(["whatsapp_business", "webchat", "imap_smtp", "google_calendar", "google_drive"].map(k => st(k).status)).toEqual(Array(5).fill("not_implemented"));
     // Every social network connects by redirect; without the operator's developer app it says exactly what's missing.
-    expect(["instagram", "facebook", "tiktok", "linkedin", "x", "youtube"].map(k => [st(k).status, st(k).canOAuth])).toEqual(Array(6).fill(["not_connected", true]));
+    expect(["instagram", "facebook", "tiktok", "linkedin", "x", "youtube"].map(k => [st(k).status, st(k).canOAuth])).toEqual(Array(6).fill(["setup_required", true]));
+    expect(st("facebook").checklist).toEqual({ oauthImplemented: true, credentialsConfigured: false, accountConnected: false, dataAccess: ["Pages you manage (to pick the business Page)", "Recent Page posts (only to confirm a publication)"], actions: ["Publish social posts"], backgroundAutomation: true });
+    expect(st("linkedin").checklist).toMatchObject({ oauthImplemented: true, actions: [], backgroundAutomation: false });
+    expect(st("instagram")).toMatchObject({ developerToken: true, canToken: false, callbackPath: "/api/oauth/instagram/callback" });
+    expect(st("telegram")).toMatchObject({ canToken: true, developerToken: false, checklist: { oauthImplemented: null, credentialsConfigured: null } });
     expect(st("facebook").setupMissing).toEqual(["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"]);
     expect(st("linkedin").capabilities).toEqual([{ label: "Publish social posts", working: false }, { label: "Retrieve analytics", working: false }]);
     expect(st("whatsapp_personal").status).toBe("unsupported");
-    expect(st("gmail")).toMatchObject({ status: "not_connected", canOAuth: true, setupMissing: ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"] });
+    expect(st("gmail")).toMatchObject({ status: "setup_required", canOAuth: true, setupMissing: ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"] });
     expect(st("telegram")).toMatchObject({ status: "not_connected", canToken: true, canOAuth: false });
     await expect(startOAuth(f.b.id, "gmail", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "SETUP_REQUIRED" });
     await expect(startOAuth(f.b.id, "facebook", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "SETUP_REQUIRED" });
     await expect(startOAuth(f.b.id, "whatsapp_business", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "NOT_SUPPORTED" });
+    // With the developer app configured, the same provider is ready to connect.
+    vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "g-app"); vi.stubEnv("GOOGLE_OAUTH_CLIENT_SECRET", "g-secret");
+    expect((await buildHubView(await f.biz())).providers.find(p => p.key === "gmail")).toMatchObject({ status: "ready_to_connect", oauthReady: true, setupMissing: [] });
+    // Outside local development the callback must be https.
+    await expect(startOAuth(f.b.id, "gmail", { origin: "http://employai.example", returnTo: "/" })).rejects.toMatchObject({ code: "SETUP_REQUIRED" });
   });
 });
 
@@ -111,17 +120,24 @@ describe("connect once: the workforce reuses connections with least privilege, a
     await createConnection(f.b.id, { connector: "instagram", label: "Instagram", setup: { access_token: "IGAAtest_token_value_0123456789" } });
     r = workforceReadiness(await f.state(), f.b.id)!;
     expect(r.missing.find(m => m.capability === "publish_social_post")).toBeUndefined();
+    // Connected is not permitted: the employee needs the owner's explicit grant first.
+    expect(r.ready.filter(x => x.capability === "publish_social_post")).toEqual([]);
+    const need = r.needsPermission.find(x => x.capability === "publish_social_post" && x.employeeId === "social_media_manager")!;
+    expect(need).toMatchObject({ permission: "publish_content", permissionLabel: "Publish content", account: "ada.atelier" });
+    await setEmployeePermissions(f.b.id, need.connectionId, need.employeeId, { add: need.permission });
+    r = workforceReadiness(await f.state(), f.b.id)!;
     expect(r.ready.filter(x => x.capability === "publish_social_post").map(x => x.via)).toEqual(expect.arrayContaining([expect.stringContaining("Instagram (ada.atelier)")]));
   });
 
-  test("a new connection grants each action only to employees whose skills need it; the owner can grant and revoke per employee", async () => {
+  test("connecting an account grants nothing; the owner explicitly grants and revokes per employee", async () => {
     const f = await boutique();
     await approveWorkforce(f.b.id);
     const ig = await createConnection(f.b.id, { connector: "instagram", label: "Instagram", setup: { access_token: "IGAAtest_token_value_0123456789" } });
     const tg = await createConnection(f.b.id, { connector: "telegram", label: "Telegram", setup: { bot_token: "123456789:AAtesttokenvalue_abcdefghijklmnopqrs" } });
     const all = await conns(f.b.id);
-    expect(all.find(c => c.id === ig.view.id)!.grants.map(g => g.agent)).toEqual(["social_media_manager"]);
-    expect(all.find(c => c.id === tg.view.id)!.grants.map(g => g.agent)).toEqual(["customer_support"]);
+    expect(all.map(c => c.grants)).toEqual([[], []]);
+    expect(resolveCapability(await f.state(), f.b.id, "social_media_manager", "publish_social_post")).toMatchObject({ state: "needs_permission" });
+    await setEmployeePermissions(f.b.id, ig.view.id, "social_media_manager", { add: "publish_content" });
     // Not granted → refused, even though the account is connected.
     await expect(requestAction(f.b.id, { connectionId: tg.view.id, action: "telegram.send_message", agent: "content_creator", idempotencyKey: "tg-test-0001", input: { chat_id: "555", text: "Hi" }, correlationId: "t" })).rejects.toMatchObject({ code: "NOT_AUTHORISED" });
     await setEmployeePermissions(f.b.id, tg.view.id, "content_creator", ["send_messages", "read_messages"]);
@@ -137,7 +153,7 @@ describe("connect once: the workforce reuses connections with least privilege, a
     expect(resolveCapability(await f.state(), f.b.id, "content_creator", "publish_social_post")).toMatchObject({ state: "needs_permission" });
   });
 
-  test("disconnect deletes credentials and grants; reconnect keeps the same connection and re-applies least-privilege grants", async () => {
+  test("disconnect deletes credentials and grants; reconnect keeps the same connection and grants nothing until the owner does", async () => {
     const f = await boutique();
     await approveWorkforce(f.b.id);
     const tg = await createConnection(f.b.id, { connector: "telegram", label: "Telegram", setup: { bot_token: "123456789:AAtesttokenvalue_abcdefghijklmnopqrs" } });
@@ -148,7 +164,7 @@ describe("connect once: the workforce reuses connections with least privilege, a
     const again = await createConnection(f.b.id, { connector: "telegram", label: "Telegram", setup: { bot_token: "123456789:AAtesttokenvalue_abcdefghijklmnopqrs" }, replaceId: tg.view.id });
     expect(again.view.id).toBe(tg.view.id);
     expect((await conns(f.b.id))).toHaveLength(1);
-    expect((await conns(f.b.id))[0]).toMatchObject({ status: "active", grants: [{ agent: "customer_support", actions: ["telegram.send_message"] }] });
+    expect((await conns(f.b.id))[0]).toMatchObject({ status: "active", grants: [] });
   });
 });
 
@@ -303,7 +319,8 @@ describe("social accounts connect by redirect to each platform's official consen
     const st = url.searchParams.get("state")!;
     expect((await completeOAuth("facebook", st, (await peekState(st))!, { code: "fb-code", error: null })).outcome).toBe("connected");
     const c = (await conns(f.b.id)).find(x => x.connector === "facebook")!;
-    expect(c).toMatchObject({ status: "active", config: { page_id: "1029384756", username: "Ada Atelier" }, auth: { method: "oauth", account: "Ada Atelier" }, grants: [{ agent: "social_media_manager", actions: ["facebook.publish_image"] }] });
+    expect(c).toMatchObject({ status: "active", config: { page_id: "1029384756", username: "Ada Atelier" }, auth: { method: "oauth", account: "Ada Atelier" }, grants: [] });
+    await setEmployeePermissions(f.b.id, c.id, "social_media_manager", { add: "publish_content" });
     expect((await loadConnectionForUse(f.b.id, c.id))!.secrets.access_token).toBe("EAApage");
     expect(resolveCapability(await f.state(), f.b.id, "social_media_manager", "publish_social_post")).toMatchObject({ state: "ready", connector: "facebook", action: "facebook.publish_image" });
     // A publish that isn't an owner-approved scheduled post is refused at delivery: nothing goes out.
@@ -347,5 +364,30 @@ describe("social accounts connect by redirect to each platform's official consen
     expect(all.find(c => c.connector === "linkedin")).toMatchObject({ status: "active", auth: { account: "Ada Okafor" } });
     // Connected, but posting to LinkedIn/X isn't built: publishing still asks for Instagram or Facebook.
     expect(resolveCapability(await f.state(), f.b.id, "social_media_manager", "publish_social_post")).toMatchObject({ state: "not_connected", providers: [{ key: "instagram" }, { key: "facebook" }] });
+  });
+});
+
+describe("failed and declined authorizations are explained, and nothing is stored", () => {
+  test("a declined consent and a failed account check are recorded; the row shows the provider's reason", async () => {
+    vi.stubEnv("LINKEDIN_CLIENT_ID", "li-app"); vi.stubEnv("LINKEDIN_CLIENT_SECRET", "li-secret");
+    vi.stubEnv("FACEBOOK_APP_ID", "fb-app"); vi.stubEnv("FACEBOOK_APP_SECRET", "fb-secret");
+    vi.spyOn(oauthNet, "fetch").mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith("/oauth/access_token")) return json({ access_token: "EAAtoken", expires_in: 3600 });
+      if (u.pathname.endsWith("/me/permissions")) return json({ data: [{ permission: "pages_show_list", status: "granted" }, { permission: "pages_manage_posts", status: "granted" }] });
+      return json({}, 404);
+    });
+    vi.spyOn(socialNet, "fetch").mockImplementation(async () => json({ data: [] }));       // no Page shared
+    const f = await boutique();
+    const start = async (p: string) => { const st = new URL(await startOAuth(f.b.id, p, { origin: "http://localhost:3101", returnTo: "/" })).searchParams.get("state")!; return { st, pending: (await peekState(st))! }; };
+    const li = await start("linkedin");
+    expect((await completeOAuth("linkedin", li.st, li.pending, { code: null, error: "user_cancelled_authorize" })).outcome).toBe("denied");
+    const fb = await start("facebook");
+    expect((await completeOAuth("facebook", fb.st, fb.pending, { code: "c", error: null })).outcome).toBe("error");
+    expect(await conns(f.b.id)).toEqual([]);                                            // nothing stored
+    const v = await buildHubView(await f.biz());
+    expect(v.providers.find(p => p.key === "linkedin")!.lastFailure).toMatchObject({ outcome: "denied", reason: "You declined the permission request." });
+    expect(v.providers.find(p => p.key === "facebook")!.lastFailure!.reason).toMatch(/No Facebook Page/);
+    expect(JSON.stringify(v)).not.toMatch(/EAAtoken/);
   });
 });

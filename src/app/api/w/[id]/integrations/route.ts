@@ -16,6 +16,7 @@ const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("connect_webhook"), label: z.string().min(1).max(60) }).strict(),
   z.object({ action: z.literal("disconnect"), connection_id: ConnId }).strict(),
   z.object({ action: z.literal("check"), connection_id: ConnId }).strict(),
+  z.object({ action: z.literal("grant"), connection_id: ConnId, employee_id: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/), permission: z.enum(Object.keys(PERMISSIONS) as [Permission, ...Permission[]]) }).strict(),
   z.object({ action: z.literal("permissions"), connection_id: ConnId, employee_id: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/), permissions: z.array(z.enum(Object.keys(PERMISSIONS) as [Permission, ...Permission[]])).max(7) }).strict(),
 ]);
 
@@ -56,6 +57,7 @@ export function POST(request: Request, ctx: Ctx) {
       case "disconnect": await disconnectConnection(business.id, d.connection_id); break;
       case "check": await checkConnection(business.id, d.connection_id); break;
       case "permissions": await setEmployeePermissions(business.id, d.connection_id, d.employee_id, d.permissions); break;
+      case "grant": await setEmployeePermissions(business.id, d.connection_id, d.employee_id, { add: d.permission }); break;
     }
     return jsonOk({ view: await buildHubView(business), ...extra }, cid);
   }, { mutation: true });

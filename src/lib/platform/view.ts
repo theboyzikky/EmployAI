@@ -6,6 +6,7 @@ import { qstashConfig } from "@/lib/automation/qstash";
 import type { ContentItem, Product } from "@/lib/content/model";
 import { discoveryRepository, type BusinessRecord } from "@/lib/discovery/store";
 import { connectionView, type ConnectionView } from "@/lib/integrations/connections";
+import { connectModes, type ConnectMode } from "@/lib/integrations/hub";
 import { CAPABILITIES } from "@/lib/workforce/registry";
 import { workforceReadiness, type Readiness } from "@/lib/workforce/readiness";
 import type { WorkforceState } from "@/lib/workforce/plan";
@@ -21,6 +22,8 @@ export type PlatformView = {
   connections: ConnectionView[];
   /** What the workforce can do now with the connected accounts, and what is missing (and why). */
   readiness: Readiness | null;
+  /** How each provider can be connected right now (OAuth redirect, developer setup required, token…). */
+  connectModes: Record<string, ConnectMode>;
   products: Array<Product & { preview: string | null }>;
   content: ContentItem[];
   background: { publicUrl: boolean; qstash: boolean; note: string };
@@ -50,7 +53,7 @@ export async function buildPlatformView(b: BusinessRecord): Promise<PlatformView
   return {
     businessId: b.id, businessName: s.business.name,
     ai: { label: ai.label, live: ai.name === "nearai" },
-    workforce: wf, integrations, connections: s.connections, readiness: s.readiness,
+    workforce: wf, integrations, connections: s.connections, readiness: s.readiness, connectModes: connectModes(),
     products: (s.business.products ?? []).map(p => ({ ...p, preview: p.image ? (p.image.kind === "url" ? p.image.url : `/api/media/${p.image.media_id}`) : null })),
     content: s.content,
     background: {
@@ -65,6 +68,8 @@ export async function buildPlatformView(b: BusinessRecord): Promise<PlatformView
 const LABELS: Record<string, string> = {
   "workforce.planned": "Workforce planned", "workforce.approved": "Workforce approved", "employee.paused": "Employee paused", "employee.resumed": "Employee resumed",
   "connection.created": "Integration connected", "connection.disabled": "Integration disabled", "connection.enabled": "Integration enabled",
+  "connection.reconnected": "Integration reconnected", "connection.disconnected": "Integration disconnected", "connection.checked": "Integration checked",
+  "connection.reauth_required": "Integration needs reconnecting", "connection.oauth_failed": "Connection attempt didn't complete", "connection.permissions_changed": "Employee permissions changed",
   "product.added": "Product added", "product.removed": "Product removed",
   "content.planned": "Content calendar created", "content.drafted": "Caption written", "content.edited": "Caption edited by owner", "content.approved": "Post approved and scheduled",
   "content.cancelled": "Schedule cancelled", "content.published": "Post published", "content.failed": "Publication failed", "content.needs_attention": "Publication needs attention",
@@ -104,5 +109,5 @@ export async function buildActivityView(b: BusinessRecord): Promise<ActivityView
 }
 
 // Types the client screens use, re-exported so components never import the integration layer itself.
-export type { HubProvider, HubStatus, HubView } from "@/lib/integrations/hub";
+export type { ConnectMode, HubProvider, HubStatus, HubView } from "@/lib/integrations/hub";
 export type { Permission } from "@/lib/integrations/catalogue";

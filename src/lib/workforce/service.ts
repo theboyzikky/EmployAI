@@ -5,8 +5,7 @@ import { getAi } from "@/lib/ai";
 import { AiError, describeAiError } from "@/lib/ai/errors";
 import { ServiceError } from "@/lib/discovery/service";
 import { discoveryRepository, type BusinessRecord } from "@/lib/discovery/store";
-import { applyDefaultGrants, audit } from "@/lib/integrations/connections";
-import { connectorFor } from "@/lib/integrations/registry";
+import { audit } from "@/lib/integrations/connections";
 import { connectionSummary } from "@/lib/integrations/resolve";
 import { buildWorkforce, WORKFORCE_SYSTEM, workforcePrompt, WorkforceProposalSchema, type WorkforceState } from "./plan";
 
@@ -54,11 +53,6 @@ export async function approveWorkforce(businessId: string): Promise<WorkforceSta
     if (wf.status !== "approved") {
       wf.status = "approved"; wf.approved_at = new Date().toISOString();
       for (const e of wf.employees) if (e.status === "proposed") e.status = "active";
-      // Reuse accounts connected before the plan: grant each employee only what its skills need.
-      for (const c of (s.connections ?? {})[businessId] ?? []) {
-        const k = c.status === "active" ? connectorFor(c.connector) : null;
-        if (k) applyDefaultGrants(s, businessId, c, k);
-      }
       audit(s, businessId, "owner", "workforce.approved", `business:${businessId}`, "approved", businessId, { employees: wf.employees.map(e => e.id) });
     }
     return wf;

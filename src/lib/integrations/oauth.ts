@@ -27,7 +27,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { getKv } from "@/lib/kv";
 import { discoveryRepository } from "@/lib/discovery/store";
 import { providerByKey } from "./catalogue";
-import { createConnection, IntegrationError, markReauthRequired, ReconnectRequired, registerTokenRefresher, CredentialRefreshFailed } from "./connections";
+import { audit, createConnection, CredentialRefreshFailed, IntegrationError, markReauthRequired, ReconnectRequired, registerTokenRefresher } from "./connections";
 import { encryptSecrets } from "./credentials";
 import type { ConnectionRecord } from "./records";
 
@@ -193,11 +193,25 @@ const STATE_TTL_MS = 10 * 60_000;
 const stateKey = (state: string) => `oauth:${createHash("sha256").update(state).digest("hex")}`;
 const b64url = (b: Buffer) => b.toString("base64url");
 
-/** Public base URL for callbacks: EMPLOYAI_PUBLIC_URL when set, else the request's own origin. */
+const isLocal = (u: URL) => u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "[::1]" || u.hostname.endsWith(".localhost");
+/**
+ * The callback URL registered with the provider: EMPLOYAI_PUBLIC_URL when set, else the request's own
+ * origin. Outside local development it must be https (providers reject, and tokens must never travel, over http).
+ */
 export function callbackUrl(kind: OAuthKind, origin: string): string {
   const base = (env("EMPLOYAI_PUBLIC_URL") || origin).replace(/\/+$/, "");
+  let u: URL;
+  try { u = new URL(base); } catch { throw new IntegrationError("SETUP_REQUIRED", 409, "Set EMPLOYAI_PUBLIC_URL to this app's public https address."); }
+  if (u.protocol !== "https:" && !isLocal(u)) throw new IntegrationError("SETUP_REQUIRED", 409, "Connections need this app at an https address (set EMPLOYAI_PUBLIC_URL).");
   return `${base}/api/oauth/${kind}/callback`;
 }
+/** The callback to register in the provider's developer console (null until EMPLOYAI_PUBLIC_URL is set). */
+export function registeredCallbackUrl(kind: OAuthKind): string | null {
+  const base = env("EMPLOYAI_PUBLIC_URL").replace(/\/+$/, "");
+  return /^https:\/\//.test(base) ? `${base}/api/oauth/${kind}/callback` : null;
+}
+/** Each provider's own "the owner declined" codes. */
+const DENIED = new Set(["access_denied", "user_denied", "user_cancelled_login", "user_cancelled_authorize", "consent_required"]);
 
 /** Start: returns the provider's authorization URL. The owner is redirected there by the browser. */
 export async function startOAuth(businessId: string, providerKey: string, o: { origin: string; returnTo: string; replaceId?: string | null }): Promise<string> {
@@ -235,21 +249,34 @@ export async function peekState(state: string): Promise<Pending | null> {
 export async function completeOAuth(kind: OAuthKind, state: string, pending: Pending, q: { code: string | null; error: string | null }): Promise<{ returnTo: string; outcome: string }> {
   await getKv().del(stateKey(state)).catch(() => undefined);
   const back = (outcome: string) => ({ returnTo: pending.ret, outcome });
-  if (pending.k !== kind) return back("error");
-  if (q.error || !q.code) return back(q.error === "access_denied" ? "denied" : "error");
+  // Every failure is recorded for the owner (provider wording only; never a code or token).
+  const fail = async (outcome: string, step: string, reason: string) => {
+    await discoveryRepository().transact(pending.b, s => {
+      if (s.businesses[pending.b]) audit(s, pending.b, "owner", "connection.oauth_failed", `provider:${pending.p}`, outcome, pending.p, { provider: pending.p, step, reason: reason.slice(0, 200) });
+    }).catch(() => undefined);
+    return back(outcome);
+  };
+  if (pending.k !== kind) return fail("error", "callback", "The response came back to the wrong connection flow.");
+  if (q.error || !q.code) return DENIED.has(q.error ?? "") ? fail("denied", "consent", "You declined the permission request.") : fail("error", "consent", `The provider returned an error (${(q.error ?? "no code").slice(0, 60)}).`);
   const flow = FLOWS[kind];
   const t = await flow.exchange(q.code, pending.r, pending.v);
-  if ("error" in t) return back("error");
+  if ("error" in t) return fail("error", "token", `${flow.name} didn't issue an access token: ${t.error}`);
   const required = requiredScopes(kind, pending.c);
   // Providers report scopes in their own forms (Graph may prefix its URL); compare case-insensitively.
   const has = (g: string, want: string) => g.toLowerCase() === want.toLowerCase() || g.toLowerCase().endsWith(`/${want.toLowerCase()}`);
   const missing = t.scopes ? (flow.essential[pending.c] ?? []).filter(w => !t.scopes!.some(g => has(g, w))) : [];
   const provider = providerByKey(pending.p)!;
-  const { view } = await createConnection(pending.b, {
-    connector: pending.c, label: provider.name, replaceId: pending.rep,
-    setup: { oauth: { access_token: t.access_token, refresh_token: t.refresh_token ?? null } },
-    auth: { method: "oauth", account: null, scopes: t.scopes ?? required, expires_at: t.expires_in ? new Date(Date.now() + t.expires_in * 1000).toISOString() : null, refreshable: !!t.refresh_token || kind === "instagram" },
-  });
+  let view;
+  try {
+    ({ view } = await createConnection(pending.b, {
+      connector: pending.c, label: provider.name, replaceId: pending.rep,
+      setup: { oauth: { access_token: t.access_token, refresh_token: t.refresh_token ?? null } },
+      auth: { method: "oauth", account: null, scopes: t.scopes ?? required, expires_at: t.expires_in ? new Date(Date.now() + t.expires_in * 1000).toISOString() : null, refreshable: !!t.refresh_token || kind === "instagram" },
+    }));
+  } catch (e) {
+    // e.g. the account check failed, or a Facebook login shared no Page: nothing is stored.
+    return fail("error", "account", e instanceof Error ? e.message : "The account couldn't be verified.");
+  }
   if (missing.length) { await markReauthRequired(pending.b, view.id, `Permission not granted: ${missing.join(", ")}. Reconnect and allow every requested permission.`); return back("insufficient"); }
   return back("connected");
 }

@@ -7,7 +7,14 @@ import { callPlatform, statusPill } from "./platform-api";
 
 const SKILL_STATUS: Record<string, string> = { operational: "Operational", preview: "Demo data", planned: "Planned" };
 
-export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
+const RETURN_MSG: Record<string, string> = {
+  connected: "is connected. Your setup continues below. Allow the employees that need it, and EmployAI takes it from there.",
+  denied: "wasn't connected: the permission request was declined on its website. Nothing was stored.",
+  insufficient: "was connected without every permission EmployAI asked for. Reconnect it and allow all of them.",
+  error: "couldn't be connected. Open Integrations to see why.",
+};
+
+export function WorkforceWorkspace({ initial, oauth }: { initial: PlatformView; oauth?: { outcome: string; provider: string } | null }) {
   const [view, setView] = useState(initial);
   const [request, setRequest] = useState(initial.workforce?.request ?? "");
   const [busy, setBusy] = useState<string | null>(null);
@@ -17,6 +24,24 @@ export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
   const rd = view.readiness;
   // Connecting returns here, to this page, so the owner never repeats the request.
   const connectHref = (provider: string) => `/w/${view.businessId}/integrations?connect=${provider}&return=${encodeURIComponent(`/w/${view.businessId}/workforce`)}`;
+  /** Connect: straight to the platform's own sign-in and consent page, returning here to continue the setup. */
+  async function connect(provider: string, connectionId: string | null = null) {
+    if (view.connectModes[provider] !== "oauth") { window.location.assign(connectHref(provider)); return; }
+    setBusy(`connect-${provider}`); setError(null);
+    const r = await callPlatform(`${base}/integrations`, "POST", { action: "connect_oauth", provider, connection_id: connectionId, return_to: `/w/${view.businessId}/workforce` });
+    if (r.ok && typeof r.data.redirect === "string") { window.location.assign(r.data.redirect); return; }
+    if (!r.ok) setError(r.message);
+    setBusy(null);
+  }
+  /** The owner explicitly allows one employee one permission on a connected account. */
+  async function allow(connectionId: string, employeeId: string, permission: string) {
+    setBusy(`allow-${employeeId}`); setError(null);
+    const r = await callPlatform(`${base}/integrations`, "POST", { action: "grant", connection_id: connectionId, employee_id: employeeId, permission });
+    if (!r.ok) setError(r.message);
+    const v = await callPlatform(`${base}/workforce`, "GET");
+    if (v.ok && v.view) setView(v.view);
+    setBusy(null);
+  }
 
   async function act(label: string, path: string, body: unknown) {
     setBusy(label); setError(null);
@@ -46,6 +71,7 @@ export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
           </button>
           {wf && wf.status !== "approved" && <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => act("approve", `${base}/workforce`, { action: "approve" })}>{busy === "approve" ? "Approving…" : "Approve workforce"}</button>}
         </div>
+        {oauth && <p className="notice mt-3" role="status">{oauth.provider.replace(/_/g, " ").replace(/^./, c => c.toUpperCase())} {RETURN_MSG[oauth.outcome] ?? RETURN_MSG.error}</p>}
         {error && <p className="notice mt-3" role="alert">{error}</p>}
       </section>
 
@@ -113,7 +139,9 @@ export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
               <ul className="mt-2 space-y-3">{rd.missing.map(m => (
                 <li key={m.capability} className="text-sm">
                   <p className="text-ink">{m.label} <span className="text-muted">— {m.why}</span></p>
-                  <div className="mt-1 flex flex-wrap gap-2">{m.providers.map(p => <Link key={p.key} className="btn btn-primary btn-sm" href={connectHref(p.key)}>Connect {p.name}</Link>)}</div>
+                  <div className="mt-1 flex flex-wrap gap-2">{m.providers.map(p => view.connectModes[p.key] === "setup_required"
+                    ? <Link key={p.key} className="btn btn-secondary btn-sm" href={connectHref(p.key)} title="This server has no developer app for it yet">{p.name}: developer setup required</Link>
+                    : <button key={p.key} type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => connect(p.key)}>{busy === `connect-${p.key}` ? "Opening…" : `Connect ${p.name}`}</button>)}</div>
                 </li>
               ))}</ul>
             </div>
@@ -122,8 +150,8 @@ export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
             <div className="mt-4">
               <p className="text-sm font-semibold text-ink">Needs your attention</p>
               <ul className="mt-2 stack-sm">
-                {rd.reconnect.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.employee}: {r.provider.name} needs reconnecting. <Link className="font-semibold text-accent" href={connectHref(r.provider.key)}>Reconnect</Link></li>)}
-                {rd.needsPermission.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.employee} isn&apos;t allowed to use {r.provider.name} yet. <Link className="font-semibold text-accent" href={connectHref(r.provider.key)}>Set permissions</Link></li>)}
+                {rd.reconnect.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.employee}: {r.provider.name} needs reconnecting. <button type="button" className="font-semibold text-accent" disabled={!!busy} onClick={() => connect(r.provider.key, r.connectionId)}>Reconnect</button></li>)}
+                {rd.needsPermission.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.provider.name}{r.account ? ` (${r.account})` : ""} is connected; {r.employee} needs “{r.permissionLabel}”. <button type="button" className="btn btn-primary btn-sm ml-1" disabled={!!busy} onClick={() => allow(r.connectionId, r.employeeId, r.permission)}>{busy === `allow-${r.employeeId}` ? "Allowing…" : "Allow"}</button></li>)}
               </ul>
             </div>
           )}

@@ -2,17 +2,24 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import {
+  CalendarBlankIcon, ChatsCircleIcon, EnvelopeIcon, FacebookLogoIcon, GoogleDriveLogoIcon, GoogleLogoIcon, Icon, InstagramLogoIcon,
+  LinkedinLogoIcon, MicrosoftOutlookLogoIcon, TelegramLogoIcon, TiktokLogoIcon, WebhooksLogoIcon, WhatsappLogoIcon, XLogoIcon, YoutubeLogoIcon,
+} from "@/components/icons";
 import type { HubProvider, HubStatus, HubView, Permission } from "@/lib/platform/view";
 import { callPlatform } from "./platform-api";
 
+const ICONS: Record<string, typeof InstagramLogoIcon> = {
+  instagram: InstagramLogoIcon, facebook: FacebookLogoIcon, tiktok: TiktokLogoIcon, linkedin: LinkedinLogoIcon, x: XLogoIcon, youtube: YoutubeLogoIcon,
+  gmail: GoogleLogoIcon, outlook: MicrosoftOutlookLogoIcon, imap_smtp: EnvelopeIcon,
+  whatsapp_business: WhatsappLogoIcon, whatsapp_personal: WhatsappLogoIcon, telegram: TelegramLogoIcon, webchat: ChatsCircleIcon,
+  webhook: WebhooksLogoIcon, google_calendar: CalendarBlankIcon, google_drive: GoogleDriveLogoIcon,
+};
 const LABEL: Record<HubStatus, string> = {
   connected: "Connected", not_connected: "Not connected", expired: "Connection expired", reauth_required: "Reconnection required",
   disabled: "Paused", not_implemented: "Available but not yet implemented", unsupported: "Unsupported",
 };
-const PILL: Record<HubStatus, string> = {
-  connected: "pill pill-ok", not_connected: "pill pill-accent", expired: "pill pill-warn", reauth_required: "pill pill-warn", disabled: "pill pill-warn", not_implemented: "pill", unsupported: "pill",
-};
-const CATEGORY: Record<string, string> = { social: "Social media", email: "Email", messaging: "Messaging", business: "Business tools" };
+const SECTION: Record<string, string> = { social: "Connect your social accounts", email: "Connect your email", messaging: "Connect your messaging", business: "Connect your business tools" };
 const OAUTH_MSG: Record<string, string> = {
   connected: "connected. Your AI employees that need it can use it now — nothing to repeat.",
   denied: "wasn't connected: the permission request was declined.",
@@ -20,11 +27,23 @@ const OAUTH_MSG: Record<string, string> = {
   error: "couldn't be connected. Try again; if it keeps failing, check the developer setup.",
 };
 
+/** The pill on the right of a row: what the owner can do, never more than is true. */
+function pillFor(p: HubProvider): { label: string; cls: string } {
+  switch (p.status) {
+    case "connected": return { label: "Connected", cls: "conn-pill conn-pill-on" };
+    case "reauth_required": case "expired": return { label: "Reconnect", cls: "conn-pill conn-pill-warn" };
+    case "disabled": return { label: "Paused", cls: "conn-pill conn-pill-warn" };
+    case "not_connected": return { label: "Connect", cls: "conn-pill conn-pill-go" };
+    case "unsupported": return { label: "Unsupported", cls: "conn-pill conn-pill-soon" };
+    default: return { label: "Coming soon", cls: "conn-pill conn-pill-soon" };
+  }
+}
+
 export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { initial: HubView; focus: string | null; returnTo: string | null; oauth: { outcome: string; provider: string } | null }) {
   const [view, setView] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tokenFor, setTokenFor] = useState<string | null>(focus);
+  const [open, setOpen] = useState<string | null>(focus);
   const [token, setToken] = useState("");
   const [reveal, setReveal] = useState<Record<string, string> | null>(null);
   const base = `/api/w/${view.businessId}/integrations`;
@@ -47,19 +66,26 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
   }
   async function tokenConnect(p: HubProvider, connectionId: string | null) {
     const t = token; setToken("");                                   // the token never stays in the page
-    const r = await post(`token-${p.key}`, { action: "connect_token", provider: p.key, token: t, connection_id: connectionId ?? p.reuseId });
-    if (r.ok) setTokenFor(null);
+    await post(`token-${p.key}`, { action: "connect_token", provider: p.key, token: t, connection_id: connectionId ?? p.reuseId });
   }
   async function togglePermission(connId: string, employeeId: string, current: Permission[], perm: Permission, on: boolean) {
     await post(`perm-${connId}-${employeeId}`, { action: "permissions", connection_id: connId, employee_id: employeeId, permissions: on ? [...current, perm] : current.filter(x => x !== perm) });
+  }
+  /** The row's pill: one-click OAuth when it's ready to run; otherwise open the row to show what's needed. */
+  function onPill(p: HubProvider) {
+    const broken = p.connections.find(c => c.status === "reauth_required" || c.status === "expired");
+    const oauthReady = p.canOAuth && p.setupMissing.length === 0;
+    if (p.status === "not_connected" && oauthReady) return void oauthConnect(p, null);
+    if (broken && oauthReady) return void oauthConnect(p, broken.id);
+    setOpen(open === p.key ? null : p.key);
   }
 
   const missing = view.readiness?.missing ?? [];
   const attention = [...(view.readiness?.reconnect ?? []), ...(view.readiness?.needsPermission ?? [])];
 
   return (
-    <div className="space-y-8">
-      <section className="card px-5 py-5">
+    <div className="space-y-6">
+      <section>
         <h1 className="text-xl font-semibold text-ink">Integrations</h1>
         <p className="mt-1 text-sm font-light text-muted">Connect each account once. Your AI employees use only the accounts and permissions you allow, and approvals for posts, messages and payments still apply. EmployAI never asks for your passwords.</p>
         {oauth && <p className="notice mt-3" role="status">{view.providers.find(p => p.key === oauth.provider)?.name ?? "The account"} {OAUTH_MSG[oauth.outcome] ?? OAUTH_MSG.error}</p>}
@@ -75,19 +101,17 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
       </section>
 
       {(missing.length > 0 || attention.length > 0) && (
-        <section className="card px-5 py-5">
+        <section className="conn-card">
           <h2 className="text-base font-semibold text-ink">Needed by your workforce</h2>
-          <ul className="mt-3 space-y-3">
+          <ul className="mt-2 space-y-2">
             {missing.map(m => (
-              <li key={m.capability} className="text-sm">
-                <p className="font-semibold text-ink">{m.label}</p>
-                <p className="text-muted">{m.why} Connect one of: {m.providers.map((p, i) => <span key={p.key}>{i > 0 && ", "}<a className="font-semibold text-accent" href={`#provider-${p.key}`} onClick={() => setTokenFor(p.key)}>{p.name}</a></span>)}</p>
+              <li key={m.capability} className="text-sm text-muted">
+                <span className="font-semibold text-ink">{m.label}.</span> {m.why} Connect {m.providers.map((p, i) => <span key={p.key}>{i > 0 && " or "}<a className="font-semibold text-accent" href={`#provider-${p.key}`} onClick={() => setOpen(p.key)}>{p.name}</a></span>)}.
               </li>
             ))}
             {attention.map(a => (
-              <li key={`${a.employeeId}-${a.skill}`} className="text-sm">
-                <p className="font-semibold text-ink">{a.skillLabel} · {a.employee}</p>
-                <p className="text-muted">{"problem" in a ? `${a.provider.name} needs reconnecting.` : `${a.employee} doesn't have permission on ${a.provider.name} yet — tick it below.`}</p>
+              <li key={`${a.employeeId}-${a.skill}`} className="text-sm text-muted">
+                <span className="font-semibold text-ink">{a.skillLabel} · {a.employee}.</span> {"problem" in a ? `${a.provider.name} needs reconnecting.` : `${a.employee} doesn't have permission on ${a.provider.name} yet.`}
               </li>
             ))}
           </ul>
@@ -95,81 +119,91 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
       )}
 
       {(["social", "email", "messaging", "business"] as const).map(cat => (
-        <section key={cat} className="space-y-3">
-          <h2 className="text-base font-semibold text-ink">{CATEGORY[cat]}</h2>
-          <ul className="grid-2">
-            {view.providers.filter(p => p.category === cat).map(p => (
-              <li key={p.key} id={`provider-${p.key}`} className={`card p-5 ${focus === p.key ? "ring-2 ring-accent" : ""}`}>
-                <div className="row-between">
-                  <h3 className="text-base font-semibold text-ink">{p.name}</h3>
-                  <span className={PILL[p.status]}>{LABEL[p.status]}</span>
-                </div>
-                {p.capabilities.length > 0 && <p className="mt-1 text-xs text-muted">{p.capabilities.map((c, i) => <span key={c.label}>{i > 0 && " · "}{c.label}{p.support === "implemented" && !c.working ? " (not yet)" : ""}</span>)}</p>}
-                <details className="mt-2 text-sm" open={p.support === "implemented" && p.connections.length === 0 && p.setupMissing.length > 0}>
-                  <summary className="cursor-pointer font-medium text-ink">Setup requirements</summary>
-                  <p className="mt-1 text-muted">{p.setup}</p>
-                </details>
-
-                {p.connections.map(c => (
-                  <div key={c.id} className="mt-3 rounded-xl border border-line p-3">
-                    <div className="row-between">
-                      <p className="text-sm font-semibold text-ink">{c.account ?? p.name}</p>
-                      <span className={PILL[c.status]}>{LABEL[c.status]}</span>
-                    </div>
-                    {c.expiresAt && <p className="mt-1 text-xs text-muted">Access token expires {new Date(c.expiresAt).toLocaleString()}{c.method === "oauth" ? " (renewed automatically when possible)" : ""}</p>}
-                    {c.problem && <p className="mt-1 text-sm text-danger">{c.problem}</p>}
-                    {c.note && <p className="mt-1 text-xs text-muted">{c.note}</p>}
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => post(`check-${c.id}`, { action: "check", connection_id: c.id })}>{busy === `check-${c.id}` ? "Checking…" : "Check"}</button>
-                      {(c.status === "reauth_required" || c.status === "expired") && (p.canOAuth && !p.setupMissing.length
-                        ? <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => oauthConnect(p, c.id)}>Reconnect</button>
-                        : p.canToken && <button type="button" className="btn btn-primary btn-sm" onClick={() => setTokenFor(p.key)}>Reconnect with a new token</button>)}
-                      <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => { if (window.confirm(`Disconnect ${p.name}? EmployAI deletes the stored access and every employee permission on it.`)) void post(`disc-${c.id}`, { action: "disconnect", connection_id: c.id }); }}>Disconnect</button>
-                    </div>
-                    {view.employees.length > 0 && c.permissions.length > 0 && (
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                          <thead><tr><th className="py-1 pr-2 font-semibold text-ink">Employee</th>{c.permissions.map(x => <th key={x.permission} className="py-1 pr-2 font-semibold text-ink" title={x.description}>{x.label}</th>)}</tr></thead>
-                          <tbody>
-                            {view.employees.map(e => {
-                              const held = c.grants[e.id] ?? [];
-                              return (
-                                <tr key={e.id} className="border-t border-line">
-                                  <td className="py-1 pr-2 text-ink">{e.name}</td>
-                                  {c.permissions.map(x => (
-                                    <td key={x.permission} className="py-1 pr-2">
-                                      <input type="checkbox" aria-label={`${e.name}: ${x.label} on ${p.name}`} checked={held.includes(x.permission)} disabled={!!busy || c.status === "not_connected"} onChange={ev => togglePermission(c.id, e.id, held, x.permission, ev.target.checked)} />
-                                    </td>
-                                  ))}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+        <section key={cat} className="conn-card">
+          <h2 className="text-lg font-semibold text-ink">{SECTION[cat]}</h2>
+          <ul className="mt-1">
+            {view.providers.filter(p => p.category === cat).map(p => {
+              const pill = pillFor(p);
+              const isOpen = open === p.key;
+              const account = p.connections.find(c => c.status === "connected")?.account;
+              const sub = account ?? (p.status === "not_connected" && p.setupMissing.length && !p.canToken ? "Needs developer setup" : p.status === "reauth_required" || p.status === "expired" ? LABEL[p.status] : null);
+              return (
+                <li key={p.key} id={`provider-${p.key}`} className="conn-item">
+                  <div className="conn-row">
+                    <button type="button" className="conn-name text-left" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : p.key)}>
+                      <Icon icon={ICONS[p.key] ?? ChatsCircleIcon} size={26} swap={false} />
+                      <span className="min-w-0">{p.name}{sub && <span className="conn-sub">{sub}</span>}</span>
+                    </button>
+                    <button type="button" className={pill.cls} disabled={!!busy && busy.endsWith(p.key)} title={LABEL[p.status]} onClick={() => onPill(p)}>
+                      {busy === `oauth-${p.key}` ? "Opening…" : pill.label}
+                    </button>
                   </div>
-                ))}
 
-                {p.support === "implemented" && (p.connections.length === 0 || tokenFor === p.key) && (
-                  <div className="mt-3 stack-sm">
-                    {p.canOAuth && p.connections.length === 0 && (p.setupMissing.length
-                      ? <p className="text-sm text-muted">One-click connect needs developer setup on this server: <code>{p.setupMissing.join(", ")}</code>.</p>
-                      : <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={() => oauthConnect(p, null)}>{busy === `oauth-${p.key}` ? "Opening…" : `Connect with ${p.name}`}</button>)}
-                    {p.canToken && (tokenFor === p.key ? (
-                      <div className="stack-sm">
-                        <input className="field" type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder={p.key === "telegram" ? "Bot token from @BotFather" : `${p.name} access token`} aria-label={`${p.name} token`} />
-                        <button type="button" className="btn btn-primary btn-sm" disabled={!!busy || token.length < 10} onClick={() => tokenConnect(p, p.connections.find(c => c.status !== "connected")?.id ?? null)}>{busy === `token-${p.key}` ? "Checking with the provider…" : "Connect"}</button>
-                        <p className="text-xs text-muted">Checked with {p.name}, stored encrypted, never shown again.</p>
-                      </div>
-                    ) : <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTokenFor(p.key)}>{p.canOAuth ? "Use a token instead" : "Connect with a token"}</button>)}
-                    {p.canWebhook && p.connections.length === 0 && (
-                      <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={async () => { const r = await post("webhook", { action: "connect_webhook", label: "Business system" }); if (r.ok) setReveal({ ...(r.data.reveal_once as Record<string, string>), webhook_path: String(r.data.webhook_path ?? "") }); }}>Create a signed webhook</button>
-                    )}
-                  </div>
-                )}
-              </li>
-            ))}
+                  {isOpen && (
+                    <div className="conn-detail stack-sm">
+                      {p.capabilities.length > 0 && <p className="text-xs text-muted">{p.capabilities.map((c, i) => <span key={c.label}>{i > 0 && " · "}{c.label}{p.support === "implemented" && !c.working ? " (not yet)" : ""}</span>)}</p>}
+                      <p className="text-sm text-muted">{p.setup}</p>
+
+                      {p.connections.map(c => (
+                        <div key={c.id} className="rounded-xl border border-line p-3">
+                          <div className="row-between">
+                            <p className="text-sm font-semibold text-ink">{c.account ?? p.name}</p>
+                            <span className={c.status === "connected" ? "pill pill-ok" : "pill pill-warn"}>{LABEL[c.status]}</span>
+                          </div>
+                          {c.expiresAt && <p className="mt-1 text-xs text-muted">Access token expires {new Date(c.expiresAt).toLocaleString()}{c.method === "oauth" ? " (renewed automatically when possible)" : ""}</p>}
+                          {c.problem && <p className="mt-1 text-sm text-danger">{c.problem}</p>}
+                          {c.note && <p className="mt-1 text-xs text-muted">{c.note}</p>}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => post(`check-${c.id}`, { action: "check", connection_id: c.id })}>{busy === `check-${c.id}` ? "Checking…" : "Check"}</button>
+                            <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => { if (window.confirm(`Disconnect ${p.name}? EmployAI deletes the stored access and every employee permission on it.`)) void post(`disc-${c.id}`, { action: "disconnect", connection_id: c.id }); }}>Disconnect</button>
+                          </div>
+                          {view.employees.length > 0 && c.permissions.length > 0 && (
+                            <div className="mt-3 overflow-x-auto">
+                              <p className="text-xs font-semibold text-ink">Which employees may use it</p>
+                              <table className="mt-1 w-full text-left text-xs">
+                                <thead><tr><th className="py-1 pr-2 font-semibold text-muted">Employee</th>{c.permissions.map(x => <th key={x.permission} className="py-1 pr-2 font-semibold text-muted" title={x.description}>{x.label}</th>)}</tr></thead>
+                                <tbody>
+                                  {view.employees.map(e => {
+                                    const held = c.grants[e.id] ?? [];
+                                    return (
+                                      <tr key={e.id} className="border-t border-line">
+                                        <td className="py-1 pr-2 text-ink">{e.name}</td>
+                                        {c.permissions.map(x => (
+                                          <td key={x.permission} className="py-1 pr-2">
+                                            <input type="checkbox" aria-label={`${e.name}: ${x.label} on ${p.name}`} checked={held.includes(x.permission)} disabled={!!busy} onChange={ev => togglePermission(c.id, e.id, held, x.permission, ev.target.checked)} />
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                      {p.support === "implemented" && (
+                        <>
+                          {p.canOAuth && p.setupMissing.length > 0 && <p className="text-sm text-muted">One-click connect needs developer setup on this server: <code>{p.setupMissing.join(", ")}</code>.</p>}
+                          {p.canOAuth && !p.setupMissing.length && p.connections.length > 0 && <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => oauthConnect(p, p.connections.find(c => c.status !== "connected")?.id ?? null)}>Connect another account</button>}
+                          {p.canToken && (
+                            <div className="stack-sm">
+                              <input className="field" type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder={p.key === "telegram" ? "Bot token from @BotFather" : `${p.name} access token`} aria-label={`${p.name} token`} />
+                              <button type="button" className="btn btn-primary btn-sm" disabled={!!busy || token.length < 10} onClick={() => tokenConnect(p, p.connections.find(c => c.status !== "connected")?.id ?? null)}>{busy === `token-${p.key}` ? "Checking with the provider…" : p.connections.length ? "Reconnect with this token" : "Connect with a token"}</button>
+                              <p className="text-xs text-muted">Checked with {p.name}, stored encrypted, never shown again.</p>
+                            </div>
+                          )}
+                          {p.canWebhook && p.connections.length === 0 && (
+                            <button type="button" className="btn btn-primary btn-sm" disabled={!!busy} onClick={async () => { const r = await post("webhook", { action: "connect_webhook", label: "Business system" }); if (r.ok) setReveal({ ...(r.data.reveal_once as Record<string, string>), webhook_path: String(r.data.webhook_path ?? "") }); }}>Create a signed webhook</button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}

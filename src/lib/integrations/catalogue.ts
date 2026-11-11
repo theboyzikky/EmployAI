@@ -50,31 +50,33 @@ export type ProviderDef = {
   /** How the owner connects: OAuth (preferred) and/or pasting a token they generated themselves. */
   auth: ProviderAuth[];
   /** The OAuth flow it uses (src/lib/integrations/oauth.ts), when it has one. */
-  oauth?: "instagram" | "google" | "microsoft";
+  oauth?: "instagram" | "google" | "microsoft" | "facebook" | "linkedin" | "x" | "tiktok";
   /** Capabilities this provider offers (or would offer, when not implemented). */
   capabilities: string[];
+  /** The subset EmployAI's connector really performs in this build (checked against the connector by tests). */
+  works?: string[];
   /** What has to exist outside EmployAI first (developer app, review, account type…). */
   setup: string;
 };
 
 export const PROVIDERS: ProviderDef[] = [
   // Social media
-  { key: "instagram", name: "Instagram", category: "social", support: "implemented", connector: "instagram", auth: ["oauth", "token"], oauth: "instagram", capabilities: ["publish_social_post", "reply_to_social_comments", "retrieve_analytics"],
+  { key: "instagram", works: ["publish_social_post"], name: "Instagram", category: "social", support: "implemented", connector: "instagram", auth: ["oauth", "token"], oauth: "instagram", capabilities: ["publish_social_post", "reply_to_social_comments", "retrieve_analytics"],
     setup: "An Instagram professional (Business or Creator) account. One-click connect needs a Meta app with Instagram Login (INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET); publishing to accounts other than the app's own testers needs Meta App Review. Alternatively paste a token generated in the Meta App Dashboard." },
-  { key: "facebook", name: "Facebook Pages", category: "social", support: "not_implemented", connector: null, auth: ["oauth"], capabilities: ["publish_social_post", "read_social_messages", "reply_to_customer", "reply_to_social_comments", "retrieve_analytics"],
-    setup: "Not built yet. Needs a Meta app with Facebook Login for Business, Page permissions and Meta App Review." },
-  { key: "tiktok", name: "TikTok", category: "social", support: "not_implemented", connector: null, auth: ["oauth"], capabilities: ["publish_social_post", "retrieve_analytics"],
-    setup: "Not built yet. Needs a TikTok for Developers app with the Content Posting API; public posting requires TikTok's app audit." },
-  { key: "linkedin", name: "LinkedIn", category: "social", support: "not_implemented", connector: null, auth: ["oauth"], capabilities: ["publish_social_post", "retrieve_analytics"],
-    setup: "Not built yet. Needs a LinkedIn developer app; posting as a company page needs approved Community Management API access." },
-  { key: "x", name: "X", category: "social", support: "not_implemented", connector: null, auth: ["oauth"], capabilities: ["publish_social_post", "read_social_messages", "reply_to_customer"],
-    setup: "Not built yet. Needs an X developer account and an API access tier that allows posting." },
-  { key: "youtube", name: "YouTube", category: "social", support: "not_implemented", connector: null, auth: ["oauth"], capabilities: ["publish_social_post", "retrieve_analytics"],
-    setup: "Not built yet. Needs a Google Cloud project with the YouTube Data API; the upload scope requires Google's app verification." },
+  { key: "facebook", works: ["publish_social_post"], name: "Facebook Pages", category: "social", support: "implemented", connector: "facebook", auth: ["oauth"], oauth: "facebook", capabilities: ["publish_social_post", "read_social_messages", "reply_to_customer", "reply_to_social_comments", "retrieve_analytics"],
+    setup: "One-click connect needs a Meta app with Facebook Login (FACEBOOK_APP_ID / FACEBOOK_APP_SECRET) and this app's callback URL. The owner picks the business Page when Facebook asks. Pages of people other than the app's testers need Meta App Review for pages_manage_posts." },
+  { key: "tiktok", name: "TikTok", category: "social", support: "implemented", connector: "tiktok", auth: ["oauth"], oauth: "tiktok", capabilities: ["publish_social_post", "retrieve_analytics"],
+    setup: "One-click connect needs a TikTok for Developers app with Login Kit and the Content Posting API (TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET). Posts stay private until TikTok audits the app. Posting from EmployAI isn't built yet." },
+  { key: "linkedin", name: "LinkedIn", category: "social", support: "implemented", connector: "linkedin", auth: ["oauth"], oauth: "linkedin", capabilities: ["publish_social_post", "retrieve_analytics"],
+    setup: "One-click connect needs a LinkedIn developer app with Sign In with LinkedIn (OpenID Connect) and Share on LinkedIn (LINKEDIN_CLIENT_ID / LINKEDIN_CLIENT_SECRET). Tokens last 60 days, then the owner reconnects. Posting from EmployAI isn't built yet." },
+  { key: "x", name: "X", category: "social", support: "implemented", connector: "xcom", auth: ["oauth"], oauth: "x", capabilities: ["publish_social_post", "read_social_messages", "reply_to_customer"],
+    setup: "One-click connect needs an X developer app with OAuth 2.0 (X_CLIENT_ID / X_CLIENT_SECRET) and an API access tier that allows posting. Posting from EmployAI isn't built yet." },
+  { key: "youtube", name: "YouTube", category: "social", support: "implemented", connector: "youtube", auth: ["oauth"], oauth: "google", capabilities: ["publish_social_post", "retrieve_analytics"],
+    setup: "One-click connect uses the Google OAuth client (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET) with the YouTube Data API enabled; the upload scope needs Google's app verification for public use. Uploading videos from EmployAI isn't built yet." },
   // Email
-  { key: "gmail", name: "Gmail", category: "email", support: "implemented", connector: "gmail", auth: ["oauth"], oauth: "google", capabilities: ["send_email", "send_message"],
+  { key: "gmail", works: ["send_email","send_message"], name: "Gmail", category: "email", support: "implemented", connector: "gmail", auth: ["oauth"], oauth: "google", capabilities: ["send_email", "send_message"],
     setup: "Needs a Google Cloud OAuth client (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET) with the Gmail API enabled and this app's callback URL. Until Google verifies the app, only accounts added as test users can connect." },
-  { key: "outlook", name: "Outlook / Microsoft 365", category: "email", support: "implemented", connector: "outlook", auth: ["oauth"], oauth: "microsoft", capabilities: ["send_email", "send_message"],
+  { key: "outlook", works: ["send_email","send_message"], name: "Outlook / Microsoft 365", category: "email", support: "implemented", connector: "outlook", auth: ["oauth"], oauth: "microsoft", capabilities: ["send_email", "send_message"],
     setup: "Needs a Microsoft Entra app registration (MICROSOFT_OAUTH_CLIENT_ID / MICROSOFT_OAUTH_CLIENT_SECRET) with delegated Mail.Send and this app's callback URL. Some organisations require an admin to consent." },
   { key: "imap_smtp", name: "Other email (IMAP / SMTP)", category: "email", support: "not_implemented", connector: null, auth: ["token"], capabilities: ["send_email", "read_email"],
     setup: "Not built yet. Would use the provider's IMAP/SMTP settings with an app password, never the account's main password." },
@@ -83,12 +85,12 @@ export const PROVIDERS: ProviderDef[] = [
     setup: "Not built yet. Needs the WhatsApp Business Platform (Cloud API): a Meta business account, a registered phone number, and approved message templates for messages outside the 24-hour window." },
   { key: "whatsapp_personal", name: "WhatsApp (personal app)", category: "messaging", support: "unsupported", connector: null, auth: [], capabilities: [],
     setup: "Unsupported: there is no official API for personal WhatsApp accounts. Use WhatsApp Business instead." },
-  { key: "telegram", name: "Telegram", category: "messaging", support: "implemented", connector: "telegram", auth: ["token"], capabilities: ["read_social_messages", "reply_to_customer", "send_message"],
+  { key: "telegram", works: ["read_social_messages","reply_to_customer","send_message"], name: "Telegram", category: "messaging", support: "implemented", connector: "telegram", auth: ["token"], capabilities: ["read_social_messages", "reply_to_customer", "send_message"],
     setup: "Create a bot with @BotFather and paste its bot token. Incoming messages need the app at a public https address (EMPLOYAI_PUBLIC_URL) so Telegram can deliver them." },
   { key: "webchat", name: "Website chat", category: "messaging", support: "not_implemented", connector: null, auth: [], capabilities: ["read_social_messages", "reply_to_customer"],
     setup: "Not built yet. Would be an embeddable chat widget served by EmployAI." },
   // Business systems
-  { key: "webhook", name: "Signed webhook (any system)", category: "business", support: "implemented", connector: "webhook", auth: ["signed_webhook"], capabilities: ["receive_events", "write_records"],
+  { key: "webhook", works: ["receive_events","write_records"], name: "Signed webhook (any system)", category: "business", support: "implemented", connector: "webhook", auth: ["signed_webhook"], capabilities: ["receive_events", "write_records"],
     setup: "Your system signs events with a secret EmployAI shows once. Works with POS, order, inventory or any custom system." },
   { key: "google_calendar", name: "Google Calendar", category: "business", support: "not_implemented", connector: null, auth: ["oauth"], capabilities: ["manage_calendar"], setup: "Not built yet. Would reuse the Google OAuth client." },
   { key: "google_drive", name: "Google Drive", category: "business", support: "not_implemented", connector: null, auth: ["oauth"], capabilities: ["read_documents"], setup: "Not built yet. Would reuse the Google OAuth client." },

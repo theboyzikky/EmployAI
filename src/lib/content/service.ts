@@ -20,7 +20,7 @@ import { CAPTION_SYSTEM, CaptionSchema, checksPass, CONTENT_PLAN_SYSTEM, Content
 
 export const PUBLISH_ACTION = "instagram.publish_image";
 /** Actions that publish an image post (same input shape: image_url, caption). Each registers the content guard/observer. */
-export const PUBLISH_ACTIONS: readonly string[] = [PUBLISH_ACTION];
+export const PUBLISH_ACTIONS: readonly string[] = [PUBLISH_ACTION, "facebook.publish_image"];
 const MAX_PRODUCTS = 20, MAX_ITEMS = 60;
 const itemsOf = (s: DevState, b: string) => ((s.content_items ??= {})[b] ??= []);
 const today = () => new Date().toISOString().slice(0, 10);

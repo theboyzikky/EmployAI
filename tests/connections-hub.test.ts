@@ -4,9 +4,11 @@
 // these tests prove EmployAI's code paths, not a real connection to Google, Microsoft, Meta or Telegram.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { resetAiForTests } from "@/lib/ai";
+import { runDueTasks } from "@/lib/automation/worker";
+import { addProduct, approveAndSchedule, draftCaption, planContent } from "@/lib/content/service";
 import "@/lib/automation/handlers";
 import { driveAction, requestAction } from "@/lib/integrations/actions";
-import { PROVIDERS } from "@/lib/integrations/catalogue";
+import { PROVIDERS, provides } from "@/lib/integrations/catalogue";
 import { createConnection, disconnectConnection, loadConnectionForUse, ReconnectRequired, setEmployeePermissions } from "@/lib/integrations/connections";
 import { buildHubView } from "@/lib/integrations/hub";
 import { completeOAuth, oauthNet, peekState, startOAuth } from "@/lib/integrations/oauth";
@@ -14,6 +16,7 @@ import "@/lib/integrations/providers";
 import { emailNet } from "@/lib/integrations/providers/email";
 import { instagramNet } from "@/lib/integrations/providers/instagram";
 import { telegramConnector, telegramNet } from "@/lib/integrations/providers/telegram";
+import { socialNet } from "@/lib/integrations/providers/social";
 import { connectorFor } from "@/lib/integrations/registry";
 import { resolveCapability } from "@/lib/integrations/resolve";
 import { discoveryRepository, setDiscoveryRepository } from "@/lib/discovery/store";
@@ -52,6 +55,7 @@ beforeEach(() => {
   vi.stubEnv("AI_PROVIDER", "mock"); vi.stubEnv("APP_ENCRYPTION_KEY", "e".repeat(40));
   vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", ""); vi.stubEnv("GOOGLE_OAUTH_CLIENT_SECRET", ""); vi.stubEnv("INSTAGRAM_APP_ID", ""); vi.stubEnv("INSTAGRAM_APP_SECRET", "");
   vi.stubEnv("MICROSOFT_OAUTH_CLIENT_ID", ""); vi.stubEnv("MICROSOFT_OAUTH_CLIENT_SECRET", ""); vi.stubEnv("EMPLOYAI_PUBLIC_URL", "");
+  for (const k of ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "X_CLIENT_ID", "X_CLIENT_SECRET", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"]) vi.stubEnv(k, "");
   resetAiForTests(); gmailMode = "ok"; tokenMode = "ok";
   if (!sharedMode) setKvForTests(new MemoryKv());
   stubProviders();
@@ -72,15 +76,26 @@ const conns = (bid: string) => discoveryRepository().readState(bid, s => (s.conn
 describe("the catalogue never shows a provider as more than it is", () => {
   test("every implemented provider has a registered connector; unbuilt ones don't; statuses are honest", async () => {
     for (const p of PROVIDERS) expect([p.key, p.support === "implemented" ? !!connectorFor(p.connector ?? "") : p.connector === null]).toEqual([p.key, true]);
+    // What a provider claims to perform is exactly what its connector implements.
+    for (const p of PROVIDERS.filter(x => x.support === "implemented")) {
+      const k = connectorFor(p.connector!)!;
+      const real = p.capabilities.filter(cap => Object.values(k.actions).some(a => provides(a, cap)) || (cap === "read_social_messages" && k.eventTypes.includes("message.received")) || (cap === "receive_events" && k.eventTypes.length > 0));
+      expect([p.key, [...real].sort()]).toEqual([p.key, [...(p.works ?? [])].sort()]);
+    }
     const f = await boutique();
     const v = await buildHubView(await f.biz());
     const st = (k: string) => v.providers.find(p => p.key === k)!;
-    expect(["facebook", "tiktok", "linkedin", "x", "youtube", "whatsapp_business", "webchat", "imap_smtp"].map(k => st(k).status)).toEqual(Array(8).fill("not_implemented"));
+    expect(["whatsapp_business", "webchat", "imap_smtp", "google_calendar", "google_drive"].map(k => st(k).status)).toEqual(Array(5).fill("not_implemented"));
+    // Every social network connects by redirect; without the operator's developer app it says exactly what's missing.
+    expect(["instagram", "facebook", "tiktok", "linkedin", "x", "youtube"].map(k => [st(k).status, st(k).canOAuth])).toEqual(Array(6).fill(["not_connected", true]));
+    expect(st("facebook").setupMissing).toEqual(["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"]);
+    expect(st("linkedin").capabilities).toEqual([{ label: "Publish social posts", working: false }, { label: "Retrieve analytics", working: false }]);
     expect(st("whatsapp_personal").status).toBe("unsupported");
     expect(st("gmail")).toMatchObject({ status: "not_connected", canOAuth: true, setupMissing: ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"] });
     expect(st("telegram")).toMatchObject({ status: "not_connected", canToken: true, canOAuth: false });
     await expect(startOAuth(f.b.id, "gmail", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "SETUP_REQUIRED" });
-    await expect(startOAuth(f.b.id, "facebook", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "NOT_SUPPORTED" });
+    await expect(startOAuth(f.b.id, "facebook", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "SETUP_REQUIRED" });
+    await expect(startOAuth(f.b.id, "whatsapp_business", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "NOT_SUPPORTED" });
   });
 });
 
@@ -89,7 +104,7 @@ describe("connect once: the workforce reuses connections with least privilege, a
     const f = await boutique();
     let r = workforceReadiness(await f.state(), f.b.id)!;
     const publish = r.missing.find(m => m.capability === "publish_social_post")!;
-    expect(publish.providers.map(p => p.key)).toEqual(["instagram"]);
+    expect(publish.providers.map(p => p.key)).toEqual(["instagram", "facebook"]);   // only providers that really publish
     expect(publish.why).toMatch(/Social Media Manager/);
     expect(r.notYet.map(n => n.skill)).toContain("answer_enquiry");          // replying to enquiries isn't built: said so
     await approveWorkforce(f.b.id);
@@ -243,5 +258,94 @@ describe("email and Telegram connectors classify outcomes honestly", () => {
     expect(verdict(setup.secrets.webhook_secret)).toMatchObject({ ok: true, events: [{ externalId: "1001", type: "message.received", subject: "555", payload: { text: "Do you have the dress in size 12?", from: "Ngozi" } }] });
     expect(setup.secrets.bot_token).toBeDefined();
     expect(JSON.stringify(setup.config)).not.toContain("AAtesttokenvalue");
+  });
+});
+
+describe("social accounts connect by redirect to each platform's official consent page", () => {
+  test("Connect builds the official authorization URL for every social network (PKCE where the platform uses it)", async () => {
+    for (const [k, v] of Object.entries({ INSTAGRAM_APP_ID: "ig-app", INSTAGRAM_APP_SECRET: "s", FACEBOOK_APP_ID: "fb-app", FACEBOOK_APP_SECRET: "s", LINKEDIN_CLIENT_ID: "li-app", LINKEDIN_CLIENT_SECRET: "s", X_CLIENT_ID: "x-app", X_CLIENT_SECRET: "s", TIKTOK_CLIENT_KEY: "tt-key", TIKTOK_CLIENT_SECRET: "s", GOOGLE_OAUTH_CLIENT_ID: "g-app", GOOGLE_OAUTH_CLIENT_SECRET: "s" })) vi.stubEnv(k, v);
+    const f = await boutique();
+    const url = async (p: string) => new URL(await startOAuth(f.b.id, p, { origin: "https://employai.example", returnTo: `/w/${f.b.id}/integrations` }));
+    const ig = await url("instagram"), fb = await url("facebook"), li = await url("linkedin"), x = await url("x"), tt = await url("tiktok"), yt = await url("youtube");
+    expect(ig.origin + ig.pathname).toBe("https://www.instagram.com/oauth/authorize");
+    expect(fb.origin + fb.pathname).toBe("https://www.facebook.com/v27.0/dialog/oauth");
+    expect(fb.searchParams.get("scope")).toBe("pages_show_list,pages_read_engagement,pages_manage_posts");
+    expect(fb.searchParams.get("redirect_uri")).toBe("https://employai.example/api/oauth/facebook/callback");
+    expect(li.origin + li.pathname).toBe("https://www.linkedin.com/oauth/v2/authorization");
+    expect(li.searchParams.get("scope")).toBe("openid profile w_member_social");
+    expect(x.origin + x.pathname).toBe("https://x.com/i/oauth2/authorize");
+    expect([x.searchParams.get("code_challenge_method"), x.searchParams.get("scope")]).toEqual(["S256", "tweet.read tweet.write users.read media.write offline.access"]);
+    expect(tt.origin + tt.pathname).toBe("https://www.tiktok.com/v2/auth/authorize/");
+    expect([tt.searchParams.get("client_key"), tt.searchParams.get("client_id")]).toEqual(["tt-key", null]);
+    expect(yt.origin + yt.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(yt.searchParams.get("scope")).toContain("https://www.googleapis.com/auth/youtube.upload");
+  });
+
+  test("Facebook: consent, long-lived token, the business Page connected, an approved post published to the Page", async () => {
+    vi.stubEnv("FACEBOOK_APP_ID", "fb-app"); vi.stubEnv("FACEBOOK_APP_SECRET", "fb-secret");
+    vi.spyOn(oauthNet, "fetch").mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith("/oauth/access_token")) return json(u.searchParams.get("grant_type") === "fb_exchange_token" ? { access_token: "EAAlong", expires_in: 5_184_000 } : { access_token: "EAAshort", expires_in: 3600 });
+      if (u.pathname.endsWith("/me/permissions")) return json({ data: [{ permission: "pages_show_list", status: "granted" }, { permission: "pages_manage_posts", status: "granted" }, { permission: "pages_read_engagement", status: "granted" }] });
+      return json({}, 404);
+    });
+    const posted: unknown[] = [];
+    vi.spyOn(socialNet, "fetch").mockImplementation(async (url: string, init: RequestInit) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith("/me/accounts")) return json({ data: [{ id: "1029384756", name: "Ada Atelier", access_token: "EAApage" }] });
+      if (u.pathname.endsWith("/1029384756/photos")) { posted.push(JSON.parse(String(init.body))); return json({ id: "photo-1", post_id: "1029384756_555" }); }
+      if (u.pathname.endsWith("/1029384756_555")) return json({ permalink_url: "https://www.facebook.com/1029384756/posts/555" });
+      return json({}, 404);
+    });
+    const f = await boutique();
+    await approveWorkforce(f.b.id);
+    const url = new URL(await startOAuth(f.b.id, "facebook", { origin: "http://localhost:3101", returnTo: `/w/${f.b.id}/workforce` }));
+    const st = url.searchParams.get("state")!;
+    expect((await completeOAuth("facebook", st, (await peekState(st))!, { code: "fb-code", error: null })).outcome).toBe("connected");
+    const c = (await conns(f.b.id)).find(x => x.connector === "facebook")!;
+    expect(c).toMatchObject({ status: "active", config: { page_id: "1029384756", username: "Ada Atelier" }, auth: { method: "oauth", account: "Ada Atelier" }, grants: [{ agent: "social_media_manager", actions: ["facebook.publish_image"] }] });
+    expect((await loadConnectionForUse(f.b.id, c.id))!.secrets.access_token).toBe("EAApage");
+    expect(resolveCapability(await f.state(), f.b.id, "social_media_manager", "publish_social_post")).toMatchObject({ state: "ready", connector: "facebook", action: "facebook.publish_image" });
+    // A publish that isn't an owner-approved scheduled post is refused at delivery: nothing goes out.
+    const rogue = await requestAction(f.b.id, { connectionId: c.id, action: "facebook.publish_image", agent: "social_media_manager", idempotencyKey: "fb-post-00001", input: { image_url: "https://cdn.example.com/dress.jpg", caption: "Unapproved" }, correlationId: "t" });
+    expect(await driveAction(f.b.id, rogue.attemptId)).toBe("aborted");
+    expect(posted).toEqual([]);
+    // The real path: product → caption → owner approval → the background worker publishes to the Page.
+    await addProduct(f.b.id, { name: "Emerald Wrap Dress", description: "Satin wrap dress, sizes 8 to 16.", price_text: "₦25,000", image_url: "https://cdn.example.com/dress.jpg" });
+    expect(await planContent(await f.biz(), 3)).toMatchObject({ created: expect.any(Number) });
+    const first = (await discoveryRepository().readState(f.b.id, s => s.content_items![f.b.id]))[0];
+    expect("item" in (await draftCaption(await f.biz(), first.id))).toBe(true);
+    const item = await approveAndSchedule(await f.biz(), first.id, new Date(Date.now() + 120_000).toISOString(), "fb-approval-1");
+    expect(item).toMatchObject({ status: "scheduled", connection_id: c.id });
+    await discoveryRepository().transact(f.b.id, s => { for (const a of s.action_attempts![f.b.id]) a.retry_at = null; for (const t of s.tasks![f.b.id]) if (t.status === "queued") t.next_at = new Date(0).toISOString(); });
+    await runDueTasks(f.b.id);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ url: "https://cdn.example.com/dress.jpg", message: expect.stringContaining("Emerald Wrap Dress") });
+    const published = (await discoveryRepository().readState(f.b.id, s => s.content_items![f.b.id])).find(i => i.id === first.id)!;
+    expect(published).toMatchObject({ status: "published", media_id: "1029384756_555", permalink: "https://www.facebook.com/1029384756/posts/555" });
+  });
+
+  test("X authenticates the app with HTTP Basic; LinkedIn connects but is never offered for posting", async () => {
+    vi.stubEnv("X_CLIENT_ID", "x-app"); vi.stubEnv("X_CLIENT_SECRET", "x-secret");
+    vi.stubEnv("LINKEDIN_CLIENT_ID", "li-app"); vi.stubEnv("LINKEDIN_CLIENT_SECRET", "li-secret");
+    let basic: string | null = null;
+    vi.spyOn(oauthNet, "fetch").mockImplementation(async (url: string, init: RequestInit) => {
+      if (url === "https://api.x.com/2/oauth2/token") { basic = new Headers(init.headers).get("authorization"); return json({ access_token: "x-access", refresh_token: "x-refresh", expires_in: 7200, scope: "tweet.read tweet.write users.read media.write offline.access" }); }
+      if (url === "https://www.linkedin.com/oauth/v2/accessToken") return json({ access_token: "li-access", expires_in: 5_184_000, scope: "openid,profile,w_member_social" });
+      return json({}, 404);
+    });
+    vi.spyOn(socialNet, "fetch").mockImplementation(async (url: string) => url.includes("api.x.com/2/users/me") ? json({ data: { id: "99", username: "ada_atelier" } }) : url.includes("linkedin.com/v2/userinfo") ? json({ sub: "li-1", name: "Ada Okafor" }) : json({}, 404));
+    const f = await boutique();
+    for (const [p, kind] of [["x", "x"], ["linkedin", "linkedin"]] as const) {
+      const url = new URL(await startOAuth(f.b.id, p, { origin: "http://localhost:3101", returnTo: "/" }));
+      const st = url.searchParams.get("state")!;
+      expect((await completeOAuth(kind, st, (await peekState(st))!, { code: "c", error: null })).outcome).toBe("connected");
+    }
+    expect(basic).toBe(`Basic ${Buffer.from("x-app:x-secret").toString("base64")}`);
+    const all = await conns(f.b.id);
+    expect(all.find(c => c.connector === "xcom")).toMatchObject({ status: "active", auth: { account: "@ada_atelier", refreshable: true } });
+    expect(all.find(c => c.connector === "linkedin")).toMatchObject({ status: "active", auth: { account: "Ada Okafor" } });
+    // Connected, but posting to LinkedIn/X isn't built: publishing still asks for Instagram or Facebook.
+    expect(resolveCapability(await f.state(), f.b.id, "social_media_manager", "publish_social_post")).toMatchObject({ state: "not_connected", providers: [{ key: "instagram" }, { key: "facebook" }] });
   });
 });

@@ -37,9 +37,15 @@ export function resolveCapability(s: DevState, businessId: string, employeeId: s
   if (active) return { state: "needs_permission", connectionId: active.id, connector: active.connector, account: accountOf(active), provider: refOf(active) };
   const broken = conns.find(c => c.status === "reauth_required");
   if (broken) return { state: "reconnect", connectionId: broken.id, connector: broken.connector, provider: refOf(broken), problem: broken.auth?.problem ?? null };
-  const implemented = PROVIDERS.filter(p => p.support === "implemented" && p.capabilities.includes(capability)).map(p => ({ key: p.key, name: p.name }));
+  // Suggest only providers whose connector really performs this capability (a connect-only account
+  // such as LinkedIn today is never offered as a way to publish).
+  const works = (p: (typeof PROVIDERS)[number]) => {
+    const k = p.connector ? connectorFor(p.connector) : null;
+    return !!k && Object.values(k.actions).some(a => provides(a, capability));
+  };
+  const implemented = PROVIDERS.filter(p => p.support === "implemented" && p.capabilities.includes(capability) && works(p)).map(p => ({ key: p.key, name: p.name }));
   if (implemented.length) return { state: "not_connected", providers: implemented };
-  return { state: "not_built", providers: PROVIDERS.filter(p => p.support === "not_implemented" && p.capabilities.includes(capability)).map(p => ({ key: p.key, name: p.name })) };
+  return { state: "not_built", providers: PROVIDERS.filter(p => p.support !== "unsupported" && p.capabilities.includes(capability) && !works(p)).map(p => ({ key: p.key, name: p.name })) };
 }
 
 /** A short, model-readable summary of the business's real connection registry (no secrets). */

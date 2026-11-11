@@ -6,6 +6,7 @@ import { registerConnector } from "../registry";
 import "../oauth";                       // registers the OAuth token refresher used before every action
 import { gmailConnector, outlookConnector } from "./email";
 import { instagramConnector } from "./instagram";
+import { facebookConnector, linkedinConnector, tiktokConnector, xConnector, youtubeConnector } from "./social";
 import { telegramConnector } from "./telegram";
 import { webhookConnector } from "./webhook";
 
@@ -14,5 +15,10 @@ registerConnector(instagramConnector);
 registerConnector(gmailConnector);
 registerConnector(outlookConnector);
 registerConnector(telegramConnector);
+registerConnector(facebookConnector);
+registerConnector(linkedinConnector);
+registerConnector(xConnector);
+registerConnector(tiktokConnector);
+registerConnector(youtubeConnector);
 
 export const CONNECTORS_REGISTERED = true;

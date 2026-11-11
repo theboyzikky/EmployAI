@@ -82,7 +82,7 @@ export type ProviderStatus = "available" | "planned";
 export const CAPABILITIES: Record<string, { label: string; builtIn: string | null; providers: Array<{ connector: string; name: string; status: ProviderStatus }> }> = Object.fromEntries(
   Object.entries(CAPABILITY_DEFS).map(([id, d]) => [id, {
     label: d.label, builtIn: d.builtIn ?? null,
-    providers: PROVIDERS.filter(p => p.support !== "unsupported" && p.capabilities.includes(id)).map(p => ({ connector: p.key, name: p.name, status: p.support === "implemented" ? "available" as const : "planned" as const })),
+    providers: PROVIDERS.filter(p => p.support !== "unsupported" && p.capabilities.includes(id)).map(p => ({ connector: p.key, name: p.name, status: p.support === "implemented" && (p.works ?? []).includes(id) ? "available" as const : "planned" as const })),
   }]),
 );
 

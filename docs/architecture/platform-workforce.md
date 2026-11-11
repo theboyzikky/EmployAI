@@ -52,7 +52,7 @@ If Instagram refuses (for example the account isn't a professional account, or t
 
 ## Connections hub (Integrations tab)
 
-The owner connects each account once in **Integrations** (`/w/[id]/integrations`). Employees never hold an account: they ask for **capabilities** (`publish_social_post`, `reply_to_customer`, `send_email`, `send_message`, `retrieve_analytics`, …), and `src/lib/integrations/resolve.ts` resolves each one to a connection the owner has authorised for that employee.
+The owner connects each account once in **Integrations** (`/w/[id]/integrations`): for social networks, **Connect** redirects straight to the platform's own consent page and back. That needs no developer knowledge from the owner; it needs the operator (whoever runs EmployAI) to register one developer app per platform, once, and set its client id and secret. Employees never hold an account: they ask for **capabilities** (`publish_social_post`, `reply_to_customer`, `send_email`, `send_message`, `retrieve_analytics`, …), and `src/lib/integrations/resolve.ts` resolves each one to a connection the owner has authorised for that employee.
 
 | Piece | Where |
 |---|---|
@@ -77,7 +77,9 @@ The owner connects each account once in **Integrations** (`/w/[id]/integrations`
 | Outlook / Microsoft 365 | Implemented: send email (OAuth, `Mail.Send`). Not externally verified. | An Entra app registration: `MICROSOFT_OAUTH_CLIENT_ID`/`SECRET`, callback URL registered. Some organisations need admin consent. |
 | Telegram | Implemented: receive messages (signed webhook) and send messages (bot token). Not externally verified. | A bot from @BotFather. Receiving needs a public https address (`EMPLOYAI_PUBLIC_URL`). |
 | Signed webhook | Implemented and tested. | None. |
-| Facebook, TikTok, LinkedIn, X, YouTube, WhatsApp Business, website chat, IMAP/SMTP, Google Calendar, Google Drive | Available but not yet implemented. Shown with their setup requirements and never as connectable. | Developer apps or reviews, listed on each card. |
+| Facebook Pages | Implemented: one-click connect (Facebook Login → long-lived token → Page token) and publishing image posts through the same approval and scheduling as Instagram. Not externally verified. | A Meta app with Facebook Login: `FACEBOOK_APP_ID`/`FACEBOOK_APP_SECRET`. Pages of people other than the app's testers need Meta App Review. |
+| LinkedIn, X, TikTok, YouTube | One-click connect implemented: the account is verified and its tokens are stored encrypted and renewed (LinkedIn has no programmatic refresh, so the owner reconnects every 60 days). **Posting to them isn't built yet**; every screen says "(not yet)" and they're never offered for publishing. | A developer app on each: `LINKEDIN_CLIENT_ID`/`SECRET`, `X_CLIENT_ID`/`SECRET`, `TIKTOK_CLIENT_KEY`/`SECRET`; YouTube uses the Google client with the YouTube Data API. |
+| WhatsApp Business, website chat, IMAP/SMTP, Google Calendar, Google Drive | Available but not yet implemented. Shown with their setup requirements and never as connectable. | Developer apps or reviews, listed on each card. |
 | WhatsApp (personal app) | Unsupported: no official API. | Use WhatsApp Business. |
 
 Reading email and replying to customer enquiries automatically are **not built**. The Gmail and Outlook scopes are send-only, and the "answer enquiries" skill is planned. The Workforce tab says so instead of showing them as ready.

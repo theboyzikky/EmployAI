@@ -106,7 +106,7 @@ export class RedisStore implements DiscoveryRepository {
     const p: BusinessPartition = {
       business, messages: [message], agents: [], workflows: [], runs: [], run_steps: {}, security_decisions: [], approval_requests: [],
       ledger_entries: [], activity_events: [], testnet_batches: [], payment_attempts: [],
-      connections: [], inbound_events: [], action_attempts: [], tasks: [],
+      connections: [], inbound_events: [], action_attempts: [], tasks: [], content_items: [],
     };
     const r = await this.kv.cas({
       docs: [{ key: storeKeys.business(business.id), expect: 0, value: JSON.stringify(p) }], ttlMs: this.ttlMs,

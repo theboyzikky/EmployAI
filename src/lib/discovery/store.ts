@@ -13,6 +13,8 @@ import type { ValidationResult, WorkflowDoc, WorkflowStatus } from "@/lib/workfl
 import type { BlocklistReport } from "@/lib/security/blocklist";
 import type { ActionAttemptRecord, ConnectionRecord, InboundEventRecord } from "@/lib/integrations/records";
 import type { TaskRecord } from "@/lib/automation/records";
+import type { WorkforceState } from "@/lib/workforce/plan";
+import type { ContentItem, Product } from "@/lib/content/model";
 import type { ActivityEvent, ApprovalRecord, LedgerRecord, PaymentAttempt, RunRecord, RunStepRecord, SecurityDecisionRecord, TestnetBatch } from "@/lib/runs/types";
 import { getKv, isSharedStore, MemoryKv } from "@/lib/kv";
 import type { Fence, SideOp } from "@/lib/kv/types";
@@ -48,6 +50,10 @@ export type BusinessRecord = {
   kill_switch_changed_at?: string | null;
   /** M7: the public ledger's unguessable slug; absent or null = private (the default). */
   public_ledger_slug?: string | null;
+  /** Platform: the planned/approved AI workforce (skills, permissions, autonomy). */
+  workforce?: WorkforceState | null;
+  /** Platform: products and facts the owner supplied (the only facts content may use). */
+  products?: Product[];
   created_at: string;
   updated_at: string;
 };
@@ -168,6 +174,7 @@ export type DevState = {
   inbound_events?: Record<string, InboundEventRecord[]>;
   action_attempts?: Record<string, ActionAttemptRecord[]>;
   tasks?: Record<string, TaskRecord[]>;
+  content_items?: Record<string, ContentItem[]>;
 };
 
 /**

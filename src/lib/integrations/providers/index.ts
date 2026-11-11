@@ -4,8 +4,10 @@ import "server-only";
 // Connectors are added milestone by milestone: the generic signed webhook (P0), Telegram (P1), then
 // WhatsApp, email, website chat and business systems (P2) — each on the same contract.
 import { registerConnector } from "../registry";
+import { instagramConnector } from "./instagram";
 import { webhookConnector } from "./webhook";
 
 registerConnector(webhookConnector);
+registerConnector(instagramConnector);
 
 export const CONNECTORS_REGISTERED = true;

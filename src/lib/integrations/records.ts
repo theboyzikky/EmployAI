@@ -1,14 +1,13 @@
 // Stored records of the integration layer (one business partition each; see src/lib/store/partition.ts).
 // Type-only module: no runtime imports, so the store and the migration script can share it.
-import type { AgentKey } from "@/lib/catalogue/catalogue";
 
 /** AES-256-GCM ciphertext of a connection's secrets (src/lib/integrations/credentials.ts). */
 export type EncryptedBlob = { v: 1; alg: "A256GCM"; iv: string; tag: string; ct: string };
 
-/** Which employee may use which actions of this connection (owner-granted). */
-export type ConnectionGrant = { agent: AgentKey; actions: string[] };
+/** Which employee may use which actions of this connection (owner-granted). `agent` is a catalogue agent key or a workforce employee id. */
+export type ConnectionGrant = { agent: string; actions: string[] };
 /** Which employee receives which event types from this connection. */
-export type ConnectionRoute = { event_type: string; agent: AgentKey };
+export type ConnectionRoute = { event_type: string; agent: string };
 
 export type ConnectionRecord = {
   /** Unguessable (144 bits); appears in the webhook URL. */
@@ -44,7 +43,7 @@ export type InboundEventRecord = {
   /** Inbound content can never authorise anything by itself. */
   provenance: "untrusted";
   status: InboundEventStatus;
-  routed_to: AgentKey | null;
+  routed_to: string | null;
   note: string | null;
 };
 
@@ -60,7 +59,7 @@ export type ActionAttemptRecord = {
   business_id: string;
   connection_id: string;
   action: string;
-  agent: AgentKey;
+  agent: string;
   /** Unique per business: the same logical action is recorded once (and sent as the provider key). */
   idempotency_key: string;
   input: Record<string, unknown>;
@@ -68,6 +67,8 @@ export type ActionAttemptRecord = {
   /** Delivery attempts made (each one recorded BEFORE it is made). */
   deliveries: number;
   provider_ref: string | null;
+  /** Provider data recorded with a confirmed outcome (e.g. a permalink). */
+  result?: Record<string, unknown> | null;
   error: { code: string; message: string } | null;
   /** Earliest time a retryable rejection may be retried. */
   retry_at: string | null;

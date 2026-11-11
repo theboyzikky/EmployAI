@@ -18,7 +18,7 @@ export function registerConnector(c: Connector): void {
   if (c.reality !== "real" && c.reality !== "simulated") throw new Error(`connector ${c.key} must declare reality`);
   for (const [name, a] of Object.entries(c.actions)) {
     if (!ACTION.test(name) || !name.startsWith(`${c.key}.`)) throw new Error(`action "${name}" must be named "${c.key}.<verb>"`);
-    if (!["read", "write", "external_message"].includes(a.sideEffect)) throw new Error(`action ${name}: unknown side effect`);
+    if (!["read", "write", "external_message", "publish"].includes(a.sideEffect)) throw new Error(`action ${name}: unknown side effect`);
     if (!["provider_key", "none"].includes(a.idempotency)) throw new Error(`action ${name}: unknown idempotency support`);
   }
   // Next bundles route modules separately, so the SAME connector module can register more than once

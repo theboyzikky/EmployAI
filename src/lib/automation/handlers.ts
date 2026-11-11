@@ -13,6 +13,7 @@ import { audit } from "@/lib/integrations/connections";
 import type { InboundEventRecord } from "@/lib/integrations/records";
 import type { TaskRecord } from "./records";
 import { registerTaskHandler, type TaskResult } from "./worker";
+import "@/lib/content/hooks";   // the content guard and observer (publishing)
 
 const soon = (ms: number) => new Date(Date.now() + ms).toISOString();
 

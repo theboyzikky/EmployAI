@@ -2,7 +2,7 @@ import type { z } from "zod";
 
 export type ProviderName = "mock" | "nearai" | "ollama";
 /** Every AI task in the app. Agent selection, security and transactions are never AI tasks. */
-export type TaskName = "discovery_turn" | "business_analysis";
+export type TaskName = "discovery_turn" | "business_analysis" | "workforce_plan" | "content_plan" | "content_caption";
 
 export type AiMode = "offline-demo" | "live";
 

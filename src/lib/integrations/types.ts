@@ -8,17 +8,18 @@
 // stand-in). Simulated connectors are never evidence of automation and are shown as such.
 
 /** What the connector is for. Informs the UI and defaults; never a security boundary on its own. */
-export type ConnectorKind = "communication" | "business_system" | "developer";
+export type ConnectorKind = "communication" | "marketing" | "business_system" | "developer";
 
 /**
  * What an action does to the outside world. Drives the security rules and the retry policy:
  *  - read:              reads external data; safe to retry
  *  - write:             changes data in an external system (stock, orders, CRM records)
  *  - external_message:  sends a message to a person (customer, supplier, owner)
+ *  - publish:           publishes public content (a social post) — owner approval is required by default
  *  - money:             moves money — NOT available to connectors: payments go only through the
  *                       existing NEAR treasury path (src/lib/runs/payment-executor.ts)
  */
-export type SideEffect = "read" | "write" | "external_message";
+export type SideEffect = "read" | "write" | "external_message" | "publish";
 
 /**
  * How a repeat of the same action is made safe:
@@ -49,7 +50,7 @@ export type InboundVerdict =
 /** The outcome of ONE delivery attempt of an outbound action. */
 export type ActionOutcome =
   /** The provider confirmed it. `ref` is its id for the effect (message id, record id): the proof. */
-  | { kind: "done"; ref: string | null; detail?: string }
+  | { kind: "done"; ref: string | null; detail?: string; data?: Record<string, unknown> }
   /** The provider refused BEFORE acting (validation, auth, rate limit). Nothing happened. */
   | { kind: "rejected"; retryable: boolean; code: string; detail: string }
   /** We can't know whether it happened (timeout after sending, 5xx, connection reset mid-request). */
@@ -66,6 +67,8 @@ export type ActionContext = {
 
 export type ActionSpec = {
   sideEffect: SideEffect;
+  /** The provider-independent capability this action implements (e.g. "social.publish"). */
+  capability?: string;
   idempotency: IdempotencySupport;
   /** Validates and normalises the input; throws on anything unexpected (deterministic, no I/O). */
   parse(input: unknown): Record<string, unknown>;

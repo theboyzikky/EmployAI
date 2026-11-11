@@ -5,7 +5,7 @@ import "server-only";
 // Secrets are encrypted per business (credentials.ts) and never returned by any function here except
 // loadConnectionForUse, which the inbox and the action executor call on the server.
 import { randomBytes, randomUUID } from "node:crypto";
-import { AGENT_ORDER, type AgentKey } from "@/lib/catalogue/catalogue";
+import { AGENT_ORDER } from "@/lib/catalogue/catalogue";
 import { discoveryRepository, type DevState } from "@/lib/discovery/store";
 import type { ActivityEvent, Actor } from "@/lib/runs/types";
 import { decryptSecrets, encryptSecrets } from "./credentials";
@@ -26,6 +26,11 @@ export function audit(s: DevState, businessId: string, actor: Actor, type: strin
   ((s.activity_events ??= {})[businessId] ??= []).push(rec);
 }
 
+/** A catalogue agent key, or an employee of this business's workforce plan. */
+export function employeeKnown(s: DevState, businessId: string, id: string): boolean {
+  return (AGENT_ORDER as string[]).includes(id) || !!s.businesses[businessId]?.workforce?.employees.some(e => e.id === id);
+}
+
 export type ConnectionView = Omit<ConnectionRecord, "secrets"> & { hasSecrets: boolean; webhookPath: string | null; connectorName: string };
 
 export function connectionView(c: ConnectionRecord): ConnectionView {
@@ -36,7 +41,8 @@ export function connectionView(c: ConnectionRecord): ConnectionView {
 
 function validateGrantsAndRoutes(connectorKey: string, grants: unknown, routes: unknown): { grants: ConnectionGrant[]; routes: ConnectionRoute[] } {
   const c = connectorFor(connectorKey)!;
-  const isAgent = (a: unknown): a is AgentKey => typeof a === "string" && (AGENT_ORDER as string[]).includes(a);
+  // Shape only here; that the employee exists in this business is checked in the commit (employeeKnown).
+  const isAgent = (a: unknown): a is string => typeof a === "string" && /^[a-z][a-z0-9_]{1,31}$/.test(a);
   const g = Array.isArray(grants) ? grants : [];
   const r = Array.isArray(routes) ? routes : [];
   if (g.length > 7 || r.length > 20) throw new IntegrationError("VALIDATION_FAILED", 400, "Too many grants or routes.");
@@ -72,6 +78,7 @@ export async function createConnection(businessId: string, input: { connector: s
   const rec: ConnectionRecord = { id, business_id: businessId, connector: connector.key, label, status: "active", reality: connector.reality, config: setup.config, secrets, grants, routes, created_at: now, updated_at: now };
   await discoveryRepository().transact(businessId, s => {
     if (!s.businesses[businessId]) throw new IntegrationError("NOT_FOUND", 404, "Not found.");
+    for (const who of [...grants.map(g => g.agent), ...routes.map(r => r.agent)]) if (!employeeKnown(s, businessId, who)) throw new IntegrationError("VALIDATION_FAILED", 400, "A grant or route names an employee this business doesn't have.");
     const list = ((s.connections ??= {})[businessId] ??= []);
     if (list.length >= MAX_CONNECTIONS_PER_BUSINESS) throw new IntegrationError("LIMIT_REACHED", 409, `A business can have up to ${MAX_CONNECTIONS_PER_BUSINESS} connections.`);
     list.push(rec);

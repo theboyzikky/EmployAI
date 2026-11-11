@@ -55,7 +55,7 @@ beforeEach(() => {
   vi.stubEnv("AI_PROVIDER", "mock"); vi.stubEnv("APP_ENCRYPTION_KEY", "e".repeat(40));
   vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", ""); vi.stubEnv("GOOGLE_OAUTH_CLIENT_SECRET", ""); vi.stubEnv("INSTAGRAM_APP_ID", ""); vi.stubEnv("INSTAGRAM_APP_SECRET", "");
   vi.stubEnv("MICROSOFT_OAUTH_CLIENT_ID", ""); vi.stubEnv("MICROSOFT_OAUTH_CLIENT_SECRET", ""); vi.stubEnv("EMPLOYAI_PUBLIC_URL", "");
-  for (const k of ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "X_CLIENT_ID", "X_CLIENT_SECRET", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"]) vi.stubEnv(k, "");
+  for (const k of ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "X_CLIENT_ID", "X_CLIENT_SECRET", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME", "TELEGRAM_WEBHOOK_SECRET", "WHATSAPP_CONFIG_ID", "META_WEBHOOK_VERIFY_TOKEN"]) vi.stubEnv(k, "");
   resetAiForTests(); gmailMode = "ok"; tokenMode = "ok";
   if (!sharedMode) setKvForTests(new MemoryKv());
   stubProviders();
@@ -91,12 +91,12 @@ describe("the catalogue never shows a provider as more than it is", () => {
     expect(st("facebook").checklist).toEqual({ oauthImplemented: true, credentialsConfigured: false, accountConnected: false, dataAccess: ["Pages you manage (to pick the business Page)", "Recent Page posts (only to confirm a publication)"], actions: ["Publish social posts"], backgroundAutomation: true });
     expect(st("linkedin").checklist).toMatchObject({ oauthImplemented: true, actions: [], backgroundAutomation: false });
     expect(st("instagram")).toMatchObject({ developerToken: true, canToken: false, callbackPath: "/api/oauth/instagram/callback" });
-    expect(st("telegram")).toMatchObject({ canToken: true, developerToken: false, checklist: { oauthImplemented: null, credentialsConfigured: null } });
+    // Telegram has no OAuth: Connect uses Telegram's own business authorization, never a pasted token.
+    expect(st("telegram")).toMatchObject({ status: "setup_required", canOAuth: true, canToken: false, developerToken: false, setupMissing: ["TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME", "TELEGRAM_WEBHOOK_SECRET"], callbackPath: "/api/hooks/telegram" });
     expect(st("facebook").setupMissing).toEqual(["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"]);
     expect(st("linkedin").capabilities).toEqual([{ label: "Publish social posts", working: false }, { label: "Retrieve analytics", working: false }]);
     expect(st("whatsapp_personal").status).toBe("unsupported");
     expect(st("gmail")).toMatchObject({ status: "setup_required", canOAuth: true, setupMissing: ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"] });
-    expect(st("telegram")).toMatchObject({ status: "not_connected", canToken: true, canOAuth: false });
     await expect(startOAuth(f.b.id, "gmail", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "SETUP_REQUIRED" });
     await expect(startOAuth(f.b.id, "facebook", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "SETUP_REQUIRED" });
     await expect(startOAuth(f.b.id, "whatsapp_business", { origin: "http://localhost:3101", returnTo: "/" })).rejects.toMatchObject({ code: "NOT_SUPPORTED" });

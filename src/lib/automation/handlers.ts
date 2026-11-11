@@ -14,6 +14,8 @@ import type { InboundEventRecord } from "@/lib/integrations/records";
 import type { TaskRecord } from "./records";
 import { registerTaskHandler, type TaskResult } from "./worker";
 import "@/lib/content/hooks";   // the content guard and observer (publishing)
+import "@/lib/messaging/hooks";  // the reply guard and observer (customer messaging)
+import { asInboundMessage, handlesMessages, ingestInbound, respondToInbound } from "@/lib/messaging/service";
 
 const soon = (ms: number) => new Date(Date.now() + ms).toISOString();
 
@@ -38,6 +40,17 @@ export function registerEventAutomation(agent: AgentKey, eventType: string, fn: 
 registerTaskHandler("process_event", async (task: TaskRecord): Promise<TaskResult> => {
   const ev = await discoveryRepository().readState(task.business_id, s => (s.inbound_events ?? {})[task.business_id]?.find(e => e.id === task.ref) ?? null);
   if (!ev) return { kind: "cancelled", reason: "The event is no longer kept." };
+  // Customer messages: always filed in the owner's Inbox; answered only by an active employee the owner
+  // allowed to read this connection's messages (the route) and that has the support skill.
+  if (ev.type === "message.received" && asInboundMessage(ev)) {
+    const agent = ev.status === "routed" ? ev.routed_to : null;
+    const filed = await discoveryRepository().transact(task.business_id, s => {
+      const r = ingestInbound(s, ev, agent);
+      return r ? { ...r, answers: !!agent && handlesMessages(s, task.business_id, agent) } : null;
+    });
+    if (filed?.answers && agent) await respondToInbound(task.business_id, filed.convId, filed.msgId, agent);
+    return { kind: "done" };
+  }
   if (ev.status !== "routed" || !ev.routed_to) return { kind: "done" };   // unrouted: already flagged for the owner
   const fn = automations.get(`${ev.routed_to}:${ev.type}`);
   if (fn) return fn(ev);

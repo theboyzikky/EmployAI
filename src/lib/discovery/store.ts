@@ -15,6 +15,7 @@ import type { ActionAttemptRecord, ConnectionRecord, InboundEventRecord } from "
 import type { TaskRecord } from "@/lib/automation/records";
 import type { WorkforceState } from "@/lib/workforce/plan";
 import type { ContentItem, Product } from "@/lib/content/model";
+import type { Conversation, MessagingSettings } from "@/lib/messaging/model";
 import type { ActivityEvent, ApprovalRecord, LedgerRecord, PaymentAttempt, RunRecord, RunStepRecord, SecurityDecisionRecord, TestnetBatch } from "@/lib/runs/types";
 import { getKv, isSharedStore, MemoryKv } from "@/lib/kv";
 import type { Fence, SideOp } from "@/lib/kv/types";
@@ -54,6 +55,8 @@ export type BusinessRecord = {
   workforce?: WorkforceState | null;
   /** Platform: products and facts the owner supplied (the only facts content may use). */
   products?: Product[];
+  /** Platform: what the support employee may say (owner-approved knowledge) and whether replies need approval. */
+  messaging?: MessagingSettings | null;
   created_at: string;
   updated_at: string;
 };
@@ -135,6 +138,8 @@ export interface DiscoveryRepository {
   businessIdForLedgerSlug(slug: string): Promise<string | null>;
   /** P0: the business that owns this integration connection, if any (the connection index; re-checked). */
   businessIdForConnection(connectionId: string): Promise<string | null>;
+  /** The live connection that answers for an external identity (route key), if any (re-checked). */
+  connectionForRouteKey(routeKey: string): Promise<{ businessId: string; connectionId: string } | null>;
   /** P0: businesses that may have due automation tasks (a hint for the recovery sweep; never trusted alone). */
   businessesWithDueWork(): Promise<string[]>;
 }
@@ -175,6 +180,8 @@ export type DevState = {
   action_attempts?: Record<string, ActionAttemptRecord[]>;
   tasks?: Record<string, TaskRecord[]>;
   content_items?: Record<string, ContentItem[]>;
+  /** Platform: customer conversations across connected channels (src/lib/messaging). */
+  conversations?: Record<string, Conversation[]>;
 };
 
 /**
@@ -272,6 +279,16 @@ export class FileDevStore implements DiscoveryRepository {
     if (!connectionId) return null;
     const s = await this.snapshot();
     for (const [bid, list] of Object.entries(s.connections ?? {})) if (s.businesses[bid] && list.some(c => c.id === connectionId)) return bid;
+    return null;
+  }
+
+  async connectionForRouteKey(routeKey: string) {
+    if (!routeKey) return null;
+    const s = await this.snapshot();
+    for (const [bid, list] of Object.entries(s.connections ?? {})) {
+      const c = s.businesses[bid] ? list.find(x => x.status !== "disconnected" && (x.route_keys ?? []).includes(routeKey)) : null;
+      if (c) return { businessId: bid, connectionId: c.id };
+    }
     return null;
   }
 

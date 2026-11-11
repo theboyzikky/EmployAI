@@ -115,7 +115,8 @@ describe("connect once: the workforce reuses connections with least privilege, a
     const publish = r.missing.find(m => m.capability === "publish_social_post")!;
     expect(publish.providers.map(p => p.key)).toEqual(["instagram", "facebook"]);   // only providers that really publish
     expect(publish.why).toMatch(/Social Media Manager/);
-    expect(r.notYet.map(n => n.skill)).toContain("answer_enquiry");          // replying to enquiries isn't built: said so
+    expect(r.notYet.map(n => n.skill)).not.toContain("answer_enquiry");      // answering enquiries is built (messaging core)
+    expect(r.missing.find(m => m.capability === "reply_to_customer")!.providers.map(p => p.key)).toContain("telegram");
     await approveWorkforce(f.b.id);
     await createConnection(f.b.id, { connector: "instagram", label: "Instagram", setup: { access_token: "IGAAtest_token_value_0123456789" } });
     r = workforceReadiness(await f.state(), f.b.id)!;

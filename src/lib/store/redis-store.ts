@@ -80,6 +80,11 @@ export class RedisStore implements DiscoveryRepository {
         side.push({ op: "sadd", key: storeKeys.owner(back.business!.business.owner_hash), member: id });     // keep the owner index alive with the workspace
         // Connection index (webhook routing): claimed for new connections, refreshed with the workspace.
         for (const c of back.business!.connections ?? []) side.push({ op: "setnx", key: storeKeys.connection(c.id), value: id });
+        // External-identity index (platform-wide webhooks): claimed while a live connection holds it, released after.
+        const keysOf = (list: Array<{ status: string; route_keys?: string[] }> | undefined) => new Set((list ?? []).filter(c => c.status !== "disconnected").flatMap(c => c.route_keys ?? []));
+        const nowKeys = keysOf(back.business!.connections), beforeKeys = keysOf(cur.p?.connections);
+        for (const k of nowKeys) side.push({ op: "setnx", key: storeKeys.route(k), value: id });
+        for (const k of beforeKeys) if (!nowKeys.has(k)) side.push({ op: "del_if", key: storeKeys.route(k), value: id });
         // Due-work index (recovery sweep): present while the business has live tasks.
         const live = (back.business!.tasks ?? []).some(t => t.status === "queued" || t.status === "running");
         side.push(live ? { op: "sadd", key: storeKeys.dueWork, member: id } : { op: "srem", key: storeKeys.dueWork, member: id });
@@ -106,7 +111,7 @@ export class RedisStore implements DiscoveryRepository {
     const p: BusinessPartition = {
       business, messages: [message], agents: [], workflows: [], runs: [], run_steps: {}, security_decisions: [], approval_requests: [],
       ledger_entries: [], activity_events: [], testnet_batches: [], payment_attempts: [],
-      connections: [], inbound_events: [], action_attempts: [], tasks: [], content_items: [],
+      connections: [], inbound_events: [], action_attempts: [], tasks: [], content_items: [], conversations: [],
     };
     const r = await this.kv.cas({
       docs: [{ key: storeKeys.business(business.id), expect: 0, value: JSON.stringify(p) }], ttlMs: this.ttlMs,
@@ -135,6 +140,14 @@ export class RedisStore implements DiscoveryRepository {
     if (!bid || !isSessionId(bid)) return null;
     const p = (await this.load(bid)).p;   // the index is only a pointer: the business must really hold it
     return p?.connections?.some(c => c.id === connectionId) ? bid : null;
+  }
+
+  async connectionForRouteKey(routeKey: string) {
+    if (!routeKey) return null;
+    const bid = await this.kv.get(storeKeys.route(routeKey));
+    if (!bid || !isSessionId(bid)) return null;
+    const c = (await this.load(bid)).p?.connections?.find(x => x.status !== "disconnected" && (x.route_keys ?? []).includes(routeKey));
+    return c ? { businessId: bid, connectionId: c.id } : null;
   }
 
   async businessesWithDueWork() {

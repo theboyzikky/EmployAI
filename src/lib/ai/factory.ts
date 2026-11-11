@@ -79,7 +79,7 @@ export async function createProvider(env: Env, deps: FactoryDeps = {}): Promise<
       const maxCalls = posNumber("NEAR_AI_MAX_CALLS", env.NEAR_AI_MAX_CALLS, p, true);
       const cap = posNumber("NEAR_AI_MAX_USD_PER_DAY", env.NEAR_AI_MAX_USD_PER_DAY, p);
       const structured = env.NEAR_AI_STRUCTURED_MODEL || NEAR_AI_STRUCTURED_DEFAULT;
-      const modelFor: Record<TaskName, string> = { discovery_turn: structured, business_analysis: structured, workforce_plan: structured, content_plan: structured, content_caption: structured };
+      const modelFor: Record<TaskName, string> = { discovery_turn: structured, business_analysis: structured, workforce_plan: structured, content_plan: structured, content_caption: structured, customer_reply: structured };
       const prices = await loadPrices(baseURL, [...new Set(Object.values(modelFor))], p, fetchImpl);
       const guard = new SpendingGuard({ provider: p, capUsdPerDay: cap, maxCalls, prices, today: deps.today, store: deps.spendStore, preflight: deps.preflight });
       return new OpenAICompatibleProvider({ name: "nearai", baseURL, apiKey, modelFor, extraBody: NEAR_AI_EXTRA_BODY, guard, timeoutMs: Number(env.NEAR_AI_TIMEOUT_MS) || 60_000, fetchImpl });
@@ -90,7 +90,7 @@ export async function createProvider(env: Env, deps: FactoryDeps = {}): Promise<
       if (!isLocal(new URL(baseURL))) throw new AiError("CONFIG", p, "OLLAMA_BASE_URL must point to this machine");
       const model = env.OLLAMA_MODEL; if (!model) throw new AiError("CONFIG", p, "OLLAMA_MODEL is required (no model is downloaded automatically)");
       const guard = new SpendingGuard({ provider: p, capUsdPerDay: 1, maxCalls: Number(env.OLLAMA_MAX_CALLS) || 1000, prices: { [model]: { prompt: 0, completion: 0 } }, store: deps.spendStore });
-      return new OpenAICompatibleProvider({ name: "ollama", baseURL, apiKey: "ollama-local", modelFor: { discovery_turn: model, business_analysis: model, workforce_plan: model, content_plan: model, content_caption: model }, guard, timeoutMs: Number(env.OLLAMA_TIMEOUT_MS) || 120_000, fetchImpl });
+      return new OpenAICompatibleProvider({ name: "ollama", baseURL, apiKey: "ollama-local", modelFor: { discovery_turn: model, business_analysis: model, workforce_plan: model, content_plan: model, content_caption: model, customer_reply: model }, guard, timeoutMs: Number(env.OLLAMA_TIMEOUT_MS) || 120_000, fetchImpl });
     }
     case undefined: case "":
       throw new AiError("CONFIG", "none", "AI_PROVIDER must be set explicitly to mock, nearai or ollama");

@@ -20,8 +20,15 @@ export type ConnectionRecord = {
    *  disabled         paused by the owner
    *  reauth_required  the provider refused the credentials (revoked, expired beyond refresh, missing scopes)
    *  disconnected     the owner disconnected it: credentials deleted, grants cleared
+   *  pending          the owner started an external authorization that hasn't finished yet (e.g. Telegram)
    */
-  status: "active" | "disabled" | "reauth_required" | "disconnected";
+  status: "active" | "disabled" | "reauth_required" | "disconnected" | "pending";
+  /**
+   * External identities this connection answers for on platform-wide webhooks ("meta:page:<id>",
+   * "meta:ig:<id>", "meta:wa:<phone_number_id>", "tg:bc:<business_connection_id>"). One external account
+   * belongs to at most one business at a time.
+   */
+  route_keys?: string[];
   /** How it was authorised and what we know about the credential (never the credential itself). */
   auth?: ConnectionAuth;
   reality: "real" | "simulated";

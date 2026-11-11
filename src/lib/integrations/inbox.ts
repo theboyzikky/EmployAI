@@ -14,6 +14,7 @@ import { discoveryRepository } from "@/lib/discovery/store";
 import { CredentialError } from "./credentials";
 import { audit, CONNECTION_ID, loadConnectionForUse } from "./connections";
 import type { InboundEventRecord } from "./records";
+import type { InboundEvent } from "./types";
 import { connectorFor } from "./registry";
 
 /** Events kept per business (oldest dropped). Provider retries arrive within minutes, well inside this. */
@@ -43,8 +44,20 @@ export async function receiveInbound(connectionId: string, rawBody: string, head
   const verdict = connector.inbound({ rawBody, headers, config: conn.record.config, secrets: conn.secrets, now: opts.now ?? Date.now() });
   if (!verdict.ok) return { status: verdict.status, code: verdict.code };
 
-  const routes = conn.record.routes;
-  const out = await repo.transact(businessId, s => {
+  const out = await storeInboundEvents(businessId, connectionId, connector.key, conn.record.routes, verdict.events, opts.onNewEvent);
+  return { status: 200, businessId, ...out };
+}
+
+/**
+ * Store verified events for one connection: once per provider event id, routed to the employee the owner
+ * chose, with a hook (the automation task) in the same commit. Shared by per-connection webhooks and
+ * platform-wide webhooks (Meta, Telegram Business), which verify the request themselves first.
+ */
+export async function storeInboundEvents(businessId: string, connectionId: string, connectorKey: string, routes: Array<{ event_type: string; agent: string }>, events: InboundEvent[], onNewEvent?: OnNewEvent): Promise<{ accepted: string[]; duplicates: number }> {
+  const connector = { key: connectorKey };
+  const opts = { onNewEvent };
+  const verdict = { events };
+  return discoveryRepository().transact(businessId, s => {
     const list = ((s.inbound_events ??= {})[businessId] ??= []);
     const accepted: string[] = [];
     let duplicates = 0;
@@ -66,5 +79,17 @@ export async function receiveInbound(connectionId: string, rawBody: string, head
     if (list.length > INBOX_KEEP) list.splice(0, list.length - INBOX_KEEP);
     return { accepted, duplicates };
   });
-  return { status: 200, businessId, ...out };
+}
+
+/**
+ * Platform-wide webhooks: deliver already-verified events to the business that owns this external
+ * identity (route key). Unknown or inactive identities are ignored (never another business's data).
+ */
+export async function deliverToRouteKey(routeKey: string, events: InboundEvent[], onNewEvent?: OnNewEvent): Promise<{ businessId: string; accepted: string[] } | null> {
+  const hit = await discoveryRepository().connectionForRouteKey(routeKey);
+  if (!hit || events.length === 0) return null;
+  const conn = await discoveryRepository().readState(hit.businessId, s => ((s.connections ?? {})[hit.businessId] ?? []).find(c => c.id === hit.connectionId) ?? null);
+  if (!conn || conn.status !== "active") return null;
+  const r = await storeInboundEvents(hit.businessId, conn.id, conn.connector, conn.routes, events, onNewEvent);
+  return { businessId: hit.businessId, accepted: r.accepted };
 }

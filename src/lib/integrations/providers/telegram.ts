@@ -10,7 +10,20 @@ import "server-only";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { newSecret } from "../credentials";
+import { ReplyInput } from "../messaging-contract";
 import type { ActionContext, ActionOutcome, Connector, InboundVerdict } from "../types";
+
+/** sendMessage outcome, honestly classified (Telegram has no idempotency key: unknown → escalated). */
+export function classifyTelegramSend(r: { status: number; json: Record<string, unknown> }, chatId: string): ActionOutcome {
+  const msg = r.json.result as { message_id?: number } | undefined;
+  const describe = String(r.json.description ?? `HTTP ${r.status || "no response"}`).slice(0, 200);
+  if (r.json.ok === true && msg?.message_id !== undefined) return { kind: "done", ref: String(msg.message_id), detail: "Delivered by Telegram", data: { message_id: msg.message_id, chat_id: chatId } };
+  if (r.status === 0 || r.status >= 500) return { kind: "unknown", detail: "Telegram didn't confirm the message; it may or may not have been delivered." };
+  if (r.status === 401 || r.status === 404) return { kind: "rejected", retryable: false, code: "AUTH_REVOKED", detail: `Telegram refused the bot (${describe}). Reconnect Telegram. Nothing was sent.` };
+  if (r.status === 429) return { kind: "rejected", retryable: true, code: "RATE_LIMITED", detail: "Telegram asked us to slow down. Nothing was sent; it will be retried." };
+  if (r.status === 403) return { kind: "rejected", retryable: false, code: "RECIPIENT_BLOCKED", detail: `Telegram won't deliver to this chat (${describe}). Nothing was sent.` };
+  return { kind: "rejected", retryable: false, code: "SEND_REFUSED", detail: `Telegram refused the message: ${describe}. Nothing was sent.` };
+}
 
 export const telegramNet = { fetch: (url: string, init: RequestInit) => fetch(url, init) };
 const TOKEN = /^\d{5,12}:[A-Za-z0-9_-]{30,64}$/;
@@ -68,12 +81,22 @@ export const telegramConnector: Connector = {
     if (!m) return { ok: true, events: [] };                          // other update kinds are ignored
     return { ok: true, events: [{
       externalId: String(u.data.update_id), type: "message.received", occurredAt: new Date(m.date * 1000).toISOString(), subject: String(m.chat.id),
-      payload: { chat_id: String(m.chat.id), chat_type: m.chat.type, text: (m.text ?? "").slice(0, 4000), from: (m.from?.username ?? m.from?.first_name ?? "").slice(0, 64), message_id: m.message_id },
+      // The shared messaging payload (messaging-contract.ts), plus the original Telegram fields.
+      payload: { channel: "telegram", thread: String(m.chat.id), from: (m.from?.username ?? m.from?.first_name ?? "").slice(0, 64) || null, text: (m.text ?? "").slice(0, 4000), message_id: String(m.message_id), sent_at: new Date(m.date * 1000).toISOString(), context: {},
+        chat_id: String(m.chat.id), chat_type: m.chat.type },
     }] };
   },
   actions: {
+    "telegram.reply": {
+      sideEffect: "external_message", capability: "reply_to_customer", permission: "send_messages", idempotency: "none",
+      parse: i => ReplyInput.parse(i),
+      async execute(ctx: ActionContext, input): Promise<ActionOutcome> {
+        const r = await api(ctx.secrets.bot_token ?? "", "sendMessage", { chat_id: input.thread, text: input.text });
+        return classifyTelegramSend(r, String(input.thread));
+      },
+    },
     "telegram.send_message": {
-      sideEffect: "external_message", capability: ["reply_to_customer", "send_message"], permission: "send_messages", idempotency: "none",
+      sideEffect: "external_message", capability: "send_message", permission: "send_messages", idempotency: "none",
       parse: i => SendInput.parse(i),
       async execute(ctx: ActionContext, input): Promise<ActionOutcome> {
         const r = await api(ctx.secrets.bot_token ?? "", "sendMessage", { chat_id: input.chat_id, text: input.text });

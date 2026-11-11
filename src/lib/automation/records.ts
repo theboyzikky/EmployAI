@@ -1,7 +1,7 @@
 // Durable task records of the automation engine (layer C), one business partition each.
 // Type-only module (shared with the store and the migration script).
 
-export type TaskKind = "advance_run" | "process_event" | "drive_action";
+export type TaskKind = "advance_run" | "process_event" | "drive_action" | "poll_mailbox";
 export type TaskStatus = "queued" | "running" | "done" | "dead" | "cancelled";
 
 export type TaskRecord = {

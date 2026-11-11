@@ -79,10 +79,22 @@ export async function createConnection(businessId: string, input: { connector: s
   await discoveryRepository().transact(businessId, s => {
     if (!s.businesses[businessId]) throw new IntegrationError("NOT_FOUND", 404, "Not found.");
     for (const who of [...grants.map(g => g.agent), ...routes.map(r => r.agent)]) if (!employeeKnown(s, businessId, who)) throw new IntegrationError("VALIDATION_FAILED", 400, "A grant or route names an employee this business doesn't have.");
+    // No explicit grants: each action goes to the workforce employees whose skills need its CAPABILITY
+    // (provider-independent: "social.publish" → whoever publishes, whatever the platform).
+    if (grants.length === 0) {
+      const wf = s.businesses[businessId]?.workforce;
+      for (const [action, spec] of Object.entries(connector.actions)) {
+        if (!spec.capability) continue;
+        for (const e of wf?.employees ?? []) if (e.integrations.some(i => i.capability === spec.capability)) {
+          const g = rec.grants.find(x => x.agent === e.id);
+          if (g) { if (!g.actions.includes(action)) g.actions.push(action); } else rec.grants.push({ agent: e.id, actions: [action] });
+        }
+      }
+    }
     const list = ((s.connections ??= {})[businessId] ??= []);
     if (list.length >= MAX_CONNECTIONS_PER_BUSINESS) throw new IntegrationError("LIMIT_REACHED", 409, `A business can have up to ${MAX_CONNECTIONS_PER_BUSINESS} connections.`);
     list.push(rec);
-    audit(s, businessId, "owner", "connection.created", `connection:${id}`, "active", id, { connector: connector.key, reality: connector.reality, grants: grants.length, routes: routes.length });
+    audit(s, businessId, "owner", "connection.created", `connection:${id}`, "active", id, { connector: connector.key, reality: connector.reality, grants: rec.grants.map(g => g.agent), routes: routes.length });
   });
   return { view: connectionView(rec), revealOnce: setup.revealOnce };
 }

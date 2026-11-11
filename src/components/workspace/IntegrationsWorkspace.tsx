@@ -15,6 +15,29 @@ const ICONS: Record<string, typeof InstagramLogoIcon> = {
   whatsapp_business: WhatsappLogoIcon, whatsapp_personal: WhatsappLogoIcon, telegram: TelegramLogoIcon, webchat: ChatsCircleIcon,
   webhook: WebhooksLogoIcon, google_calendar: CalendarBlankIcon, google_drive: GoogleDriveLogoIcon,
 };
+/** Each provider's logo colour class (globals.css → .brand-*). */
+const BRAND: Record<string, string> = {
+  instagram: "brand-instagram", facebook: "brand-facebook", tiktok: "brand-tiktok", linkedin: "brand-linkedin", x: "brand-x", youtube: "brand-youtube",
+  gmail: "brand-google", outlook: "brand-outlook", whatsapp_business: "brand-whatsapp", whatsapp_personal: "brand-whatsapp", telegram: "brand-telegram",
+  google_calendar: "brand-calendar", google_drive: "brand-drive",
+};
+/** Gradients the Instagram and Google marks use (referenced from CSS by id). */
+function BrandGradients() {
+  return (
+    <svg width="0" height="0" aria-hidden="true" focusable="false" style={{ position: "absolute" }}>
+      <defs>
+        <linearGradient id="eai-brand-instagram" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" stopColor="#feda75" /><stop offset="0.3" stopColor="#fa7e1e" /><stop offset="0.55" stopColor="#d62976" /><stop offset="0.8" stopColor="#962fbf" /><stop offset="1" stopColor="#4f5bd5" />
+        </linearGradient>
+        <linearGradient id="eai-brand-google" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ea4335" /><stop offset="0.32" stopColor="#ea4335" /><stop offset="0.33" stopColor="#fbbc05" /><stop offset="0.5" stopColor="#fbbc05" />
+          <stop offset="0.51" stopColor="#34a853" /><stop offset="0.7" stopColor="#34a853" /><stop offset="0.71" stopColor="#4285f4" /><stop offset="1" stopColor="#4285f4" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 const LABEL: Record<HubStatus, string> = {
   connected: "Connected", not_connected: "Not connected", expired: "Connection expired", reauth_required: "Reconnection required",
   disabled: "Paused", not_implemented: "Available but not yet implemented", unsupported: "Unsupported",
@@ -85,6 +108,7 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
 
   return (
     <div className="space-y-6">
+      <BrandGradients />
       <section>
         <h1 className="text-xl font-semibold text-ink">Integrations</h1>
         <p className="mt-1 text-sm font-light text-muted">Connect each account once. Your AI employees use only the accounts and permissions you allow, and approvals for posts, messages and payments still apply. EmployAI never asks for your passwords.</p>
@@ -131,7 +155,7 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
                 <li key={p.key} id={`provider-${p.key}`} className="conn-item">
                   <div className="conn-row">
                     <button type="button" className="conn-name text-left" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : p.key)}>
-                      <Icon icon={ICONS[p.key] ?? ChatsCircleIcon} size={26} swap={false} />
+                      <Icon icon={ICONS[p.key] ?? ChatsCircleIcon} size={24} className={`brand-logo ${BRAND[p.key] ?? "brand-generic"}`} />
                       <span className="min-w-0">{p.name}{sub && <span className="conn-sub">{sub}</span>}</span>
                     </button>
                     <button type="button" className={pill.cls} disabled={!!busy && busy.endsWith(p.key)} title={LABEL[p.status]} onClick={() => onPill(p)}>

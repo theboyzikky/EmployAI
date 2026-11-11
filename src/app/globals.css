@@ -744,7 +744,7 @@ textarea.field { min-height: 5.5rem; resize: vertical; }
 .conn-card { border: 1px solid var(--color-line); border-radius: 1.25rem; background: var(--color-surface); padding: 1.25rem 1.5rem; }
 .conn-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; }
 .conn-item + .conn-item { border-top: 1px solid var(--color-line); }
-.conn-name { display: flex; align-items: center; gap: 0.75rem; min-width: 0; font-size: 1.0625rem; font-weight: 600; color: var(--color-ink); }
+.conn-name { display: flex; align-items: center; gap: 0.75rem; min-width: 0; font-size: 0.9375rem; font-weight: 500; color: var(--color-ink); }
 .conn-sub { display: block; font-size: 0.75rem; font-weight: 500; color: var(--color-muted); }
 .conn-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 0.3125rem 0.75rem; font-size: 0.8125rem; font-weight: 700; white-space: nowrap; border: 0; cursor: pointer; color: var(--color-ink); background: var(--color-surface-2); transition: filter 120ms ease; }
 .conn-pill:hover:not(:disabled) { filter: brightness(0.96); }
@@ -754,3 +754,20 @@ textarea.field { min-height: 5.5rem; resize: vertical; }
 .conn-pill-warn { color: var(--color-danger); background: color-mix(in oklab, var(--color-danger) 14%, transparent); }
 .conn-pill-soon { color: var(--color-muted); }
 .conn-detail { padding: 0 0 1rem 2.25rem; }
+
+/* Provider logos in their own brand colours (solid marks, like the real logos). */
+.brand-logo > .eai-icon-fill { opacity: 1; }
+.brand-logo > .eai-icon-regular { opacity: 0; }
+.brand-instagram svg { fill: url(#eai-brand-instagram); }
+.brand-google svg { fill: url(#eai-brand-google); }
+.brand-facebook { color: #0866ff; }
+.brand-linkedin { color: #0a66c2; }
+.brand-youtube { color: #ff0000; }
+.brand-x { color: var(--color-ink); }
+.brand-tiktok { color: var(--color-ink); filter: drop-shadow(-1.2px -1.2px 0 #25f4ee) drop-shadow(1.2px 1.2px 0 #fe2c55); }
+.brand-outlook { color: #0078d4; }
+.brand-whatsapp { color: #25d366; }
+.brand-telegram { color: #26a5e4; }
+.brand-calendar { color: #4285f4; }
+.brand-drive { color: #1fa463; }
+.brand-generic { color: var(--color-accent); }

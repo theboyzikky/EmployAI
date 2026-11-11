@@ -75,7 +75,7 @@ export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
                 <div className="row-between">
                   <div>
                     <h3 className="text-base font-semibold text-ink">{e.name}</h3>
-                    <p className="text-sm font-medium text-muted">{e.title}</p>
+                    {e.title !== e.name && <p className="text-sm font-medium text-muted">{e.title}</p>}
                   </div>
                   <span className={statusPill(e.status)}>{e.status === "active" ? "Active" : e.status === "paused" ? "Paused" : "Proposed"}</span>
                 </div>

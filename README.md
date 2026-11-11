@@ -29,6 +29,8 @@ Owners know what they want automated but not how to design triggers, workflows a
 | Ledger | Verified on-chain payouts, failed payouts and simulated test-run rows are labelled separately; payments in progress are never counted as paid. |
 | Shared blocklist | Reports need evidence; the server stores its SHA-256. Confirmed → BLOCK, reported → WARN only. |
 | Attack demo | `npm run demo:attack`: a prompt-injected, fully compromised agent tries to pay a known-bad account and is blocked: no approval, no signature, no transaction. |
+| AI workforce (any business) | **Workforce** tab: describe what the business needs; NEAR AI composes employees from a skill library, each skill labelled Operational, Demo data or Planned; code sets autonomy; the owner approves and can pause any employee. See [platform-workforce.md](docs/architecture/platform-workforce.md). |
+| Content and Instagram | **Content** tab: real products with the owner's photo and exact price → AI calendar → AI captions with eight visible checks → owner approval → published by the background worker at the chosen time. **Activity** tab: everything recorded. |
 
 ## Real vs simulated
 
@@ -40,6 +42,7 @@ Owners know what they want automated but not how to design triggers, workflows a
 | Customer messages, supplier quotes, owner notifications | **Simulated** and labelled ("not sent", "no supplier contacted"). |
 | Customer payments and revenue split (`pay_order`) | **Not enabled.** The contract method exists but is switched off; see Limitations. |
 | AI consultant | Offline rule-based mode (`AI_PROVIDER=mock`, no keys) or NEAR AI Cloud (`AI_PROVIDER=nearai`). The screen always shows which. Agents in runs are rule-based in both modes. |
+| Instagram publishing | **Built; not yet externally verified.** Tested against a simulated Instagram API. The first real post needs the owner's Instagram token, and unattended scheduling must be proven on the deployed worker (steps in [platform-workforce.md](docs/architecture/platform-workforce.md)). Facebook, TikTok, LinkedIn, X and messaging channels are **planned** and shown as Planned. |
 | Storage | **Locally:** a development store (`.data/dev-store.json`, git-ignored, single process). **Hosted demo:** a shared Upstash Redis store: one versioned document per workspace, atomic compare-and-set commits across server instances, workspaces expire 60 days after their last change. See [the hosted demo guide](docs/deployment/vercel-upstash.md). |
 
 ## Try it (do X, see Y)

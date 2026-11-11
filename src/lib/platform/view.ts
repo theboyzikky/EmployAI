@@ -77,7 +77,7 @@ export type ActivityView = {
 
 export async function buildActivityView(b: BusinessRecord): Promise<ActivityView> {
   return discoveryRepository().readState(b.id, s => {
-    const staff = new Map((s.businesses[b.id]?.workforce?.employees ?? []).map(e => [e.id, `${e.name} (${e.title})`]));
+    const staff = new Map((s.businesses[b.id]?.workforce?.employees ?? []).map(e => [e.id, e.name === e.title ? e.name : `${e.name} (${e.title})`]));
     const who = (actor: string) => actor === "owner" ? "You" : actor.startsWith("agent:") ? staff.get(actor.slice(6)) ?? actor.slice(6) : actor;
     const events = [...((s.activity_events ?? {})[b.id] ?? [])].slice(-120).reverse().map(e => {
       const p = e.payload as Record<string, unknown>;

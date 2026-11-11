@@ -3,12 +3,14 @@
 // An AI employee is a set of skills plus business context, permissions and an autonomy level. A role
 // template is only a starting point: the planner can compose a custom employee from any registered
 // skills, so EmployAI isn't limited to a fixed list of agents. A skill that needs the outside world
-// names a CAPABILITY ("social.publish", "messaging.reply"), never a vendor; any connector that provides
+// names a CAPABILITY ("publish_social_post", "reply_to_customer"), never a vendor; any connector that provides
 // the capability can serve it.
 //
 // Honesty about status is part of the data:
 //   skills:      operational (real code path today) · preview (works on demo data only) · planned
 //   providers:   available (a real connector exists) · planned (not built; never shown as connected)
+
+import { CAPABILITY_DEFS, PROVIDERS } from "@/lib/integrations/catalogue";
 
 export type SkillStatus = "operational" | "preview" | "planned";
 export type Autonomy = "automatic" | "approval" | "never";
@@ -31,26 +33,26 @@ export const SKILLS: Record<string, Skill> = {
   // Marketing (operational: the first real vertical)
   plan_content: { id: "plan_content", label: "Plan a content calendar", description: "Turns the business goals and products into a dated content plan.", capability: null, autonomy: "automatic", status: "operational", ai: true, output: "Content calendar" },
   draft_caption: { id: "draft_caption", label: "Write post captions", description: "Writes captions and hashtags grounded only in owner-supplied product facts; checked by rules before anyone sees them.", capability: null, autonomy: "automatic", status: "operational", ai: true, output: "Validated post drafts" },
-  publish_social_post: { id: "publish_social_post", label: "Publish approved posts", description: "Publishes owner-approved posts to a connected social account at the scheduled time, in the background.", capability: "social.publish", autonomy: "approval", status: "operational", ai: false, output: "Published posts with platform IDs and links" },
-  verify_publication: { id: "verify_publication", label: "Verify publications", description: "Records the platform's media ID and public link as proof; escalates anything uncertain.", capability: "social.publish", autonomy: "automatic", status: "operational", ai: false, output: "Verified publication records" },
-  analyse_engagement: { id: "analyse_engagement", label: "Analyse engagement", description: "Reads likes, comments and reach and recommends improvements.", capability: "social.insights", autonomy: "automatic", status: "planned", ai: true, output: "Performance report" },
-  reply_to_comments: { id: "reply_to_comments", label: "Reply to comments", description: "Answers routine comments within approved facts.", capability: "social.reply", autonomy: "approval", status: "planned", ai: true, output: "Replies" },
+  publish_social_post: { id: "publish_social_post", label: "Publish approved posts", description: "Publishes owner-approved posts to a connected social account at the scheduled time, in the background.", capability: "publish_social_post", autonomy: "approval", status: "operational", ai: false, output: "Published posts with platform IDs and links" },
+  verify_publication: { id: "verify_publication", label: "Verify publications", description: "Records the platform's media ID and public link as proof; escalates anything uncertain.", capability: "publish_social_post", autonomy: "automatic", status: "operational", ai: false, output: "Verified publication records" },
+  analyse_engagement: { id: "analyse_engagement", label: "Analyse engagement", description: "Reads likes, comments and reach and recommends improvements.", capability: "retrieve_analytics", autonomy: "automatic", status: "planned", ai: true, output: "Performance report" },
+  reply_to_comments: { id: "reply_to_comments", label: "Reply to comments", description: "Answers routine comments within approved facts.", capability: "reply_to_social_comments", autonomy: "approval", status: "planned", ai: true, output: "Replies" },
   // Customer service and sales
-  answer_enquiry: { id: "answer_enquiry", label: "Answer customer enquiries", description: "Answers routine questions from approved business facts; escalates anything uncertain.", capability: "messaging.reply", autonomy: "approval", status: "planned", ai: true, output: "Replies and escalations" },
-  capture_lead: { id: "capture_lead", label: "Capture and qualify leads", description: "Records enquiries as leads with the details needed to follow up.", capability: "records.write", autonomy: "automatic", status: "planned", ai: true, output: "Qualified leads" },
-  follow_up: { id: "follow_up", label: "Follow up with customers", description: "Sends approved follow-up messages on a schedule.", capability: "messaging.send", autonomy: "approval", status: "planned", ai: true, output: "Follow-ups" },
-  schedule_appointment: { id: "schedule_appointment", label: "Arrange appointments and viewings", description: "Books slots in the business calendar.", capability: "calendar.write", autonomy: "approval", status: "planned", ai: false, output: "Bookings" },
+  answer_enquiry: { id: "answer_enquiry", label: "Answer customer enquiries", description: "Answers routine questions from approved business facts; escalates anything uncertain.", capability: "reply_to_customer", autonomy: "approval", status: "planned", ai: true, output: "Replies and escalations" },
+  capture_lead: { id: "capture_lead", label: "Capture and qualify leads", description: "Records enquiries as leads with the details needed to follow up.", capability: "write_records", autonomy: "automatic", status: "planned", ai: true, output: "Qualified leads" },
+  follow_up: { id: "follow_up", label: "Follow up with customers", description: "Sends approved follow-up messages on a schedule.", capability: "send_message", autonomy: "approval", status: "planned", ai: true, output: "Follow-ups" },
+  schedule_appointment: { id: "schedule_appointment", label: "Arrange appointments and viewings", description: "Books slots in the business calendar.", capability: "manage_calendar", autonomy: "approval", status: "planned", ai: false, output: "Bookings" },
   // Operations (the restaurant workflow: real runner, demo data; payments real on NEAR testnet)
   validate_order: { id: "validate_order", label: "Check and record orders", description: "Checks each order against the menu or catalogue.", capability: null, autonomy: "automatic", status: "preview", ai: false, output: "Confirmed orders" },
   track_stock: { id: "track_stock", label: "Monitor stock", description: "Updates stock and flags items below their reorder point.", capability: null, autonomy: "automatic", status: "preview", ai: false, output: "Stock levels and reorder flags" },
   choose_supplier: { id: "choose_supplier", label: "Choose an approved supplier", description: "Compares approved suppliers on price and delivery.", capability: null, autonomy: "automatic", status: "preview", ai: false, output: "Purchase proposals" },
-  prepare_payment: { id: "prepare_payment", label: "Prepare supplier payments", description: "Requests payments through the NEAR treasury contract; every payment needs owner approval.", capability: "payments.near", autonomy: "approval", status: "operational", ai: false, output: "Verified NEAR testnet payouts" },
-  receive_business_events: { id: "receive_business_events", label: "Receive business events", description: "Accepts signed events from POS, order or inventory systems.", capability: "events.receive", autonomy: "automatic", status: "operational", ai: false, output: "Recorded events" },
+  prepare_payment: { id: "prepare_payment", label: "Prepare supplier payments", description: "Requests payments through the NEAR treasury contract; every payment needs owner approval.", capability: "pay_near", autonomy: "approval", status: "operational", ai: false, output: "Verified NEAR testnet payouts" },
+  receive_business_events: { id: "receive_business_events", label: "Receive business events", description: "Accepts signed events from POS, order or inventory systems.", capability: "receive_events", autonomy: "automatic", status: "operational", ai: false, output: "Recorded events" },
   // Administration and coordination
   coordinate_team: { id: "coordinate_team", label: "Coordinate the team", description: "Hands work between employees and keeps the owner informed.", capability: null, autonomy: "automatic", status: "operational", ai: false, output: "Hand-offs and status" },
   prepare_report: { id: "prepare_report", label: "Prepare reports", description: "Summarises activity and results for the owner.", capability: null, autonomy: "automatic", status: "planned", ai: true, output: "Reports" },
-  process_documents: { id: "process_documents", label: "Process documents", description: "Reads incoming documents and files the key details.", capability: "files.read", autonomy: "approval", status: "planned", ai: true, output: "Organised records" },
-  send_reminders: { id: "send_reminders", label: "Send reminders", description: "Reminds people about tasks and deadlines.", capability: "messaging.send", autonomy: "approval", status: "planned", ai: false, output: "Reminders" },
+  process_documents: { id: "process_documents", label: "Process documents", description: "Reads incoming documents and files the key details.", capability: "read_documents", autonomy: "approval", status: "planned", ai: true, output: "Organised records" },
+  send_reminders: { id: "send_reminders", label: "Send reminders", description: "Reminds people about tasks and deadlines.", capability: "send_message", autonomy: "approval", status: "planned", ai: false, output: "Reminders" },
 };
 
 export type RoleTemplate = { id: string; name: string; title: string; skills: string[]; responsibilities: string[]; escalation: string[]; restrictions: string[] };
@@ -72,18 +74,16 @@ export const ROLE_TEMPLATES: Record<string, RoleTemplate> = {
 };
 
 export type ProviderStatus = "available" | "planned";
-/** Capabilities and the connectors that provide them. "available" = a real connector exists in this build. */
-export const CAPABILITIES: Record<string, { label: string; providers: Array<{ connector: string; name: string; status: ProviderStatus }> }> = {
-  "social.publish": { label: "Publish social posts", providers: [{ connector: "instagram", name: "Instagram", status: "available" }, { connector: "facebook", name: "Facebook Pages", status: "planned" }, { connector: "tiktok", name: "TikTok", status: "planned" }, { connector: "linkedin", name: "LinkedIn", status: "planned" }, { connector: "x", name: "X", status: "planned" }] },
-  "social.insights": { label: "Read social performance", providers: [{ connector: "instagram", name: "Instagram Insights", status: "planned" }] },
-  "social.reply": { label: "Reply to social comments", providers: [{ connector: "instagram", name: "Instagram comments", status: "planned" }] },
-  "messaging.reply": { label: "Reply to customer messages", providers: [{ connector: "telegram", name: "Telegram", status: "planned" }, { connector: "whatsapp", name: "WhatsApp Business", status: "planned" }, { connector: "email", name: "Email", status: "planned" }, { connector: "webchat", name: "Website chat", status: "planned" }] },
-  "messaging.send": { label: "Send messages", providers: [{ connector: "telegram", name: "Telegram", status: "planned" }, { connector: "whatsapp", name: "WhatsApp Business", status: "planned" }, { connector: "email", name: "Email", status: "planned" }] },
-  "records.write": { label: "Write business records", providers: [{ connector: "webhook", name: "Signed webhook (any system)", status: "available" }, { connector: "sheets", name: "Google Sheets", status: "planned" }, { connector: "crm", name: "CRM", status: "planned" }] },
-  "events.receive": { label: "Receive business events", providers: [{ connector: "webhook", name: "Signed webhook (any system)", status: "available" }] },
-  "calendar.write": { label: "Manage a calendar", providers: [{ connector: "google_calendar", name: "Google Calendar", status: "planned" }, { connector: "outlook", name: "Microsoft 365", status: "planned" }] },
-  "files.read": { label: "Read documents", providers: [{ connector: "drive", name: "Google Drive", status: "planned" }, { connector: "onedrive", name: "OneDrive", status: "planned" }] },
-  "payments.near": { label: "Payments on NEAR", providers: [{ connector: "near_treasury", name: "NEAR treasury contract (testnet)", status: "available" }] },
-};
+/**
+ * Capabilities and the providers that offer them, derived from the connection catalogue
+ * (src/lib/integrations/catalogue.ts): "available" = a real connector is implemented in this build,
+ * "planned" = listed but not built. Built-in capabilities (scheduler, NEAR treasury) need no account.
+ */
+export const CAPABILITIES: Record<string, { label: string; builtIn: string | null; providers: Array<{ connector: string; name: string; status: ProviderStatus }> }> = Object.fromEntries(
+  Object.entries(CAPABILITY_DEFS).map(([id, d]) => [id, {
+    label: d.label, builtIn: d.builtIn ?? null,
+    providers: PROVIDERS.filter(p => p.support !== "unsupported" && p.capabilities.includes(id)).map(p => ({ connector: p.key, name: p.name, status: p.support === "implemented" ? "available" as const : "planned" as const })),
+  }]),
+);
 
 export const isSkill = (id: string) => Object.prototype.hasOwnProperty.call(SKILLS, id);

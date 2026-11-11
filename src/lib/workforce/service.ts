@@ -5,7 +5,9 @@ import { getAi } from "@/lib/ai";
 import { AiError, describeAiError } from "@/lib/ai/errors";
 import { ServiceError } from "@/lib/discovery/service";
 import { discoveryRepository, type BusinessRecord } from "@/lib/discovery/store";
-import { audit } from "@/lib/integrations/connections";
+import { applyDefaultGrants, audit } from "@/lib/integrations/connections";
+import { connectorFor } from "@/lib/integrations/registry";
+import { connectionSummary } from "@/lib/integrations/resolve";
 import { buildWorkforce, WORKFORCE_SYSTEM, workforcePrompt, WorkforceProposalSchema, type WorkforceState } from "./plan";
 
 export const MAX_REQUEST = 1_000;
@@ -21,7 +23,9 @@ export async function planWorkforce(business: BusinessRecord, request: string): 
   const text = request.trim().slice(0, MAX_REQUEST);
   const profile = profileFacts(business);
   if (!text && !profile.goals && !profile.challenges) throw new ServiceError("VALIDATION_FAILED", 400, "Tell EmployAI what you'd like taken off your hands.");
-  const ctx = { request: text, profile };
+  // The planner sees the business's REAL connection registry, so it can reuse what is connected.
+  const connections = await discoveryRepository().readState(business.id, s => connectionSummary(s, business.id));
+  const ctx = { request: text, profile, connections };
   let result;
   try {
     const ai = await getAi();
@@ -50,6 +54,11 @@ export async function approveWorkforce(businessId: string): Promise<WorkforceSta
     if (wf.status !== "approved") {
       wf.status = "approved"; wf.approved_at = new Date().toISOString();
       for (const e of wf.employees) if (e.status === "proposed") e.status = "active";
+      // Reuse accounts connected before the plan: grant each employee only what its skills need.
+      for (const c of (s.connections ?? {})[businessId] ?? []) {
+        const k = c.status === "active" ? connectorFor(c.connector) : null;
+        if (k) applyDefaultGrants(s, businessId, c, k);
+      }
       audit(s, businessId, "owner", "workforce.approved", `business:${businessId}`, "approved", businessId, { employees: wf.employees.map(e => e.id) });
     }
     return wf;

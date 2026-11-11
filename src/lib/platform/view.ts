@@ -7,6 +7,7 @@ import type { ContentItem, Product } from "@/lib/content/model";
 import { discoveryRepository, type BusinessRecord } from "@/lib/discovery/store";
 import { connectionView, type ConnectionView } from "@/lib/integrations/connections";
 import { CAPABILITIES } from "@/lib/workforce/registry";
+import { workforceReadiness, type Readiness } from "@/lib/workforce/readiness";
 import type { WorkforceState } from "@/lib/workforce/plan";
 
 export type IntegrationStatus = "connected" | "available" | "planned";
@@ -18,6 +19,8 @@ export type PlatformView = {
   /** Every capability the workforce needs, with each provider's REAL status for this business. */
   integrations: Array<{ capability: string; label: string; neededBy: string[]; providers: Array<{ connector: string; name: string; status: IntegrationStatus; account: string | null }> }>;
   connections: ConnectionView[];
+  /** What the workforce can do now with the connected accounts, and what is missing (and why). */
+  readiness: Readiness | null;
   products: Array<Product & { preview: string | null }>;
   content: ContentItem[];
   background: { publicUrl: boolean; qstash: boolean; note: string };
@@ -28,6 +31,7 @@ export async function buildPlatformView(b: BusinessRecord): Promise<PlatformView
     connections: ((st.connections ?? {})[b.id] ?? []).map(connectionView),
     content: [...((st.content_items ?? {})[b.id] ?? [])].sort((x, y) => (x.planned_for + x.created_at).localeCompare(y.planned_for + y.created_at)),
     business: st.businesses[b.id] ?? b,
+    readiness: workforceReadiness(st, b.id),
   }));
   const wf = s.business.workforce ?? null;
   const caps = new Map<string, string[]>();
@@ -46,7 +50,7 @@ export async function buildPlatformView(b: BusinessRecord): Promise<PlatformView
   return {
     businessId: b.id, businessName: s.business.name,
     ai: { label: ai.label, live: ai.name === "nearai" },
-    workforce: wf, integrations, connections: s.connections,
+    workforce: wf, integrations, connections: s.connections, readiness: s.readiness,
     products: (s.business.products ?? []).map(p => ({ ...p, preview: p.image ? (p.image.kind === "url" ? p.image.url : `/api/media/${p.image.media_id}`) : null })),
     content: s.content,
     background: {
@@ -98,3 +102,7 @@ export async function buildActivityView(b: BusinessRecord): Promise<ActivityView
     };
   });
 }
+
+// Types the client screens use, re-exported so components never import the integration layer itself.
+export type { HubProvider, HubStatus, HubView } from "@/lib/integrations/hub";
+export type { Permission } from "@/lib/integrations/catalogue";

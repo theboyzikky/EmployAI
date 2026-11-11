@@ -6,16 +6,17 @@ import type { PlatformView } from "@/lib/platform/view";
 import { callPlatform, statusPill } from "./platform-api";
 
 const SKILL_STATUS: Record<string, string> = { operational: "Operational", preview: "Demo data", planned: "Planned" };
-const PROVIDER_STATUS: Record<string, string> = { connected: "Connected", available: "Available", planned: "Planned" };
 
 export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
   const [view, setView] = useState(initial);
   const [request, setRequest] = useState(initial.workforce?.request ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState("");
   const base = `/api/w/${view.businessId}`;
   const wf = view.workforce;
+  const rd = view.readiness;
+  // Connecting returns here, to this page, so the owner never repeats the request.
+  const connectHref = (provider: string) => `/w/${view.businessId}/integrations?connect=${provider}&return=${encodeURIComponent(`/w/${view.businessId}/workforce`)}`;
 
   async function act(label: string, path: string, body: unknown) {
     setBusy(label); setError(null);
@@ -25,17 +26,6 @@ export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
     setBusy(null);
     return r.ok;
   }
-  async function connectInstagram() {
-    setBusy("connect"); setError(null);
-    const r = await callPlatform(`${base}/connections`, "POST", { connector: "instagram", label: "Instagram", setup: { access_token: token } });
-    setToken("");                                   // never kept in the page
-    if (!r.ok) setError(r.message);
-    const v = await callPlatform(`${base}/workforce`, "GET");
-    if (v.ok && v.view) setView(v.view);
-    setBusy(null);
-  }
-  const igConnected = view.connections.some(c => c.connector === "instagram" && c.status === "active");
-  const needsPublishing = view.integrations.some(i => i.capability === "social.publish");
 
   return (
     <div className="space-y-8">
@@ -107,30 +97,46 @@ export function WorkforceWorkspace({ initial }: { initial: PlatformView }) {
         </section>
       )}
 
-      {wf && view.integrations.length > 0 && (
-        <section className="card px-5 py-5">
-          <h2 className="text-base font-semibold text-ink">Integrations this workforce needs</h2>
-          <p className="mt-1 text-sm text-muted">Connected = live in your workspace · Available = a real connector exists · Planned = not built yet (never shown as working).</p>
-          <ul className="mt-4 space-y-4">
-            {view.integrations.map(i => (
-              <li key={i.capability}>
-                <p className="text-sm font-semibold text-ink">{i.label} <span className="font-normal text-muted">· for {i.neededBy.join(", ")}</span></p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {i.providers.map(p => <span key={p.connector} className={statusPill(p.status)}>{p.name}: {PROVIDER_STATUS[p.status]}{p.account ? ` (@${p.account})` : ""}</span>)}
-                </div>
-              </li>
-            ))}
-          </ul>
-          {needsPublishing && !igConnected && (
-            <div className="mt-5 rounded-xl border border-line p-4">
-              <p className="text-sm font-semibold text-ink">Connect Instagram</p>
-              <p className="mt-1 text-sm text-muted">Paste the access token from the Meta App Dashboard (Instagram → API setup with Instagram login). It is checked with Instagram, stored encrypted, and never shown again.</p>
-              {wf.status !== "approved" && <p className="notice mt-2">Approve the workforce first, so the publishing employee receives permission.</p>}
-              <input className="field mt-3" type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder="Instagram access token" aria-label="Instagram access token" />
-              <button type="button" className="btn btn-primary btn-sm mt-3" disabled={!!busy || token.length < 20 || wf.status !== "approved"} onClick={connectInstagram}>{busy === "connect" ? "Checking with Instagram…" : "Connect Instagram"}</button>
+      {wf && rd && (
+        <section id="readiness" className="card px-5 py-5">
+          <h2 className="text-base font-semibold text-ink">What your workforce can do with your connected accounts</h2>
+          <p className="mt-1 text-sm text-muted">EmployAI checked your real connections. It prepares what it can do now and asks only for what is missing.</p>
+          {rd.ready.length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-ink">Ready now</p>
+              <ul className="mt-2 stack-sm">{rd.ready.map(r => <li key={`${r.employeeId}-${r.skill}`} className="flex flex-wrap items-center gap-2 text-sm text-ink">{r.skillLabel} <span className="text-muted">· {r.employee}</span> <span className="pill pill-ok">{r.via}</span></li>)}</ul>
             </div>
           )}
-          {igConnected && <p className="notice mt-4">Instagram is connected. Next: add products and plan content in <Link className="font-semibold text-accent" href={`/w/${view.businessId}/content`}>Content</Link>.</p>}
+          {rd.missing.length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-ink">Needs a connection</p>
+              <ul className="mt-2 space-y-3">{rd.missing.map(m => (
+                <li key={m.capability} className="text-sm">
+                  <p className="text-ink">{m.label} <span className="text-muted">— {m.why}</span></p>
+                  <div className="mt-1 flex flex-wrap gap-2">{m.providers.map(p => <Link key={p.key} className="btn btn-primary btn-sm" href={connectHref(p.key)}>Connect {p.name}</Link>)}</div>
+                </li>
+              ))}</ul>
+            </div>
+          )}
+          {(rd.needsPermission.length > 0 || rd.reconnect.length > 0) && (
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-ink">Needs your attention</p>
+              <ul className="mt-2 stack-sm">
+                {rd.reconnect.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.employee}: {r.provider.name} needs reconnecting. <Link className="font-semibold text-accent" href={connectHref(r.provider.key)}>Reconnect</Link></li>)}
+                {rd.needsPermission.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.employee} isn&apos;t allowed to use {r.provider.name} yet. <Link className="font-semibold text-accent" href={connectHref(r.provider.key)}>Set permissions</Link></li>)}
+              </ul>
+            </div>
+          )}
+          {(rd.notYet.length > 0 || rd.demo.length > 0) && (
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-ink">Not possible yet</p>
+              <ul className="mt-2 stack-sm">
+                {rd.notYet.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-muted">{r.skillLabel} · {r.employee}: {r.reason}</li>)}
+                {rd.demo.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-muted">{r.skillLabel} · {r.employee}: runs on demo data only.</li>)}
+              </ul>
+            </div>
+          )}
+          {rd.ready.some(r => r.capability === "publish_social_post") && <p className="notice mt-4">Publishing is set up. Next: add products and plan content in <Link className="font-semibold text-accent" href={`/w/${view.businessId}/content`}>Content</Link>.</p>}
         </section>
       )}
     </div>

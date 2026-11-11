@@ -91,7 +91,7 @@ export const webhookConnector: Connector = {
   },
   actions: {
     "webhook.deliver": {
-      sideEffect: "write",
+      sideEffect: "write", capability: "write_records",
       idempotency: "provider_key",
       parse: input => DeliverInput.parse(input),
       async execute(ctx, input): Promise<ActionOutcome> {

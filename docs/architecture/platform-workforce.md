@@ -49,3 +49,35 @@ This layer sits on the P0 engine ([platform-p0.md](platform-p0.md)). It isn't ti
 6. Open that link in a private window (logged out) to confirm the post is public.
 
 If Instagram refuses (for example the account isn't a professional account, or the app is in development mode and posts aren't public), the post goes to `failed` or `needs_attention` with Instagram's own error message. Record that message as the blocker.
+
+## Connections hub (Integrations tab)
+
+The owner connects each account once in **Integrations** (`/w/[id]/integrations`). Employees never hold an account: they ask for **capabilities** (`publish_social_post`, `reply_to_customer`, `send_email`, `send_message`, `retrieve_analytics`, …), and `src/lib/integrations/resolve.ts` resolves each one to a connection the owner has authorised for that employee.
+
+| Piece | Where |
+|---|---|
+| Provider catalogue: every provider, its category, capabilities and honest support level | `src/lib/integrations/catalogue.ts` |
+| Official OAuth flows (state hashed in KV for 10 min, single use, owner cookie required at the callback; PKCE for Google and Microsoft; minimum scopes; granted scopes checked; tokens encrypted; refresh before use; a revoked token puts the connection in "Reconnection required") | `src/lib/integrations/oauth.ts`, `src/app/api/oauth/[provider]/callback/route.ts` |
+| Connection lifecycle: least-privilege default grants, per-employee permissions, disconnect (deletes credentials and grants), reconnect (same connection, history kept), check | `src/lib/integrations/connections.ts` |
+| Hub view and readiness ("ready now / needs a connection / needs your attention / not possible yet") | `src/lib/integrations/hub.ts`, `src/lib/workforce/readiness.ts` |
+| Connectors | `providers/instagram.ts`, `providers/email.ts` (Gmail, Outlook), `providers/telegram.ts`, `providers/webhook.ts` |
+
+**Statuses shown:** Connected · Not connected · Connection expired · Reconnection required · Paused · Available but not yet implemented · Unsupported. A provider without a registered connector can never show as connected. Each capability on a card says "(not yet)" unless the connector really implements it.
+
+**Permissions** are granted per employee and per connection, in categories: read messages, draft messages, send messages, create content, publish content, read analytics, other actions. When a connection is created, each action is granted only to employees whose skills need its capability. When a workforce is approved, the accounts already connected are reused the same way. Approvals for posts and payments, spend limits and the kill switch still apply on top of these grants.
+
+**AI awareness:** the workforce planner receives the business's real connection registry. The Workforce tab shows what is ready now, which connections are missing and why, with a direct link to connect each one. After connecting, the owner is brought back to the same page and the plan continues; nothing has to be re-entered.
+
+### Provider status (11 Nov 2026)
+
+| Provider | Status in this build | What the owner needs |
+|---|---|---|
+| Instagram | Implemented: publish image posts. OAuth flow plus a pasted-token option. Not yet verified with a real account. | A professional account. OAuth needs `INSTAGRAM_APP_ID`/`INSTAGRAM_APP_SECRET`, and Meta App Review for accounts other than the app's testers. |
+| Gmail | Implemented: send email (OAuth, `gmail.send` only). Not externally verified. | A Google Cloud OAuth client: `GOOGLE_OAUTH_CLIENT_ID`/`SECRET`, Gmail API enabled, callback URL registered, test users until Google verifies the app. |
+| Outlook / Microsoft 365 | Implemented: send email (OAuth, `Mail.Send`). Not externally verified. | An Entra app registration: `MICROSOFT_OAUTH_CLIENT_ID`/`SECRET`, callback URL registered. Some organisations need admin consent. |
+| Telegram | Implemented: receive messages (signed webhook) and send messages (bot token). Not externally verified. | A bot from @BotFather. Receiving needs a public https address (`EMPLOYAI_PUBLIC_URL`). |
+| Signed webhook | Implemented and tested. | None. |
+| Facebook, TikTok, LinkedIn, X, YouTube, WhatsApp Business, website chat, IMAP/SMTP, Google Calendar, Google Drive | Available but not yet implemented. Shown with their setup requirements and never as connectable. | Developer apps or reviews, listed on each card. |
+| WhatsApp (personal app) | Unsupported: no official API. | Use WhatsApp Business. |
+
+Reading email and replying to customer enquiries automatically are **not built**. The Gmail and Outlook scopes are send-only, and the "answer enquiries" skill is planned. The Workforce tab says so instead of showing them as ready.

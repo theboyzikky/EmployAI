@@ -56,6 +56,7 @@ describe("network isolation (server code)", () => {
     "src/lib/ai/factory.ts",                         // NEAR AI model catalogue (prices)
     "src/lib/ai/providers/openai-compatible.ts",     // NEAR AI completions
     "src/lib/automation/qstash.ts",                  // background queue (M0.5)
+    "src/lib/integrations/oauth.ts",                 // official OAuth token endpoints (Instagram, Google, Microsoft)
   ];
   const PROVIDERS = "src/lib/integrations/providers/";   // connector adapters: the integration layer's only network code
 

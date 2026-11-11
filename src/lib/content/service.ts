@@ -14,10 +14,13 @@ import { ServiceError } from "@/lib/discovery/service";
 import { discoveryRepository, type BusinessRecord, type DevState } from "@/lib/discovery/store";
 import { requestAction } from "@/lib/integrations/actions";
 import { audit } from "@/lib/integrations/connections";
+import { resolveCapability } from "@/lib/integrations/resolve";
 import { loadMedia, MEDIA_ID, publicMediaUrl } from "@/lib/media/store";
 import { CAPTION_SYSTEM, CaptionSchema, checksPass, CONTENT_PLAN_SYSTEM, ContentPlanSchema, validateCaption, type ContentItem, type Product, type ProductImage } from "./model";
 
 export const PUBLISH_ACTION = "instagram.publish_image";
+/** Actions that publish an image post (same input shape: image_url, caption). Each registers the content guard/observer. */
+export const PUBLISH_ACTIONS: readonly string[] = [PUBLISH_ACTION];
 const MAX_PRODUCTS = 20, MAX_ITEMS = 60;
 const itemsOf = (s: DevState, b: string) => ((s.content_items ??= {})[b] ??= []);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -169,26 +172,33 @@ export async function approveAndSchedule(business: BusinessRecord, itemId: strin
   if (Date.parse(when) > Date.now() + 30 * 86_400_000) throw new ServiceError("VALIDATION_FAILED", 400, "Schedule within the next 30 days.");
   const state = await discoveryRepository().readState(business.id, s => ({
     item: itemsOf(s, business.id).find(i => i.id === itemId) ?? null,
-    conn: ((s.connections ?? {})[business.id] ?? []).find(c => c.status === "active" && c.grants.some(g => g.agent === publisher.id && g.actions.includes(PUBLISH_ACTION))) ?? null,
+    // Provider-independent: whichever connected account offers "publish_social_post" to this employee.
+    route: resolveCapability(s, business.id, publisher.id, "publish_social_post"),
   }));
+  const r = state.route;
+  const conn = r.state === "ready" ? { id: r.connectionId, action: r.action } : null;
   const item = state.item;
   if (!item) throw new ServiceError("NOT_FOUND", 404, "That post doesn't exist.");
   // A repeated click of the same approval: return the post as it is now (no second action).
   const repeat = await discoveryRepository().readState(business.id, s => ((s.action_attempts ?? {})[business.id] ?? []).some(a => a.idempotency_key === `content:${itemId}:${approvalKey}`));
   if (repeat) return item;
   if (item.status !== "draft" || !checksPass(item.checks) || !item.caption) throw new ServiceError("STATE_CONFLICT", 409, "Only a draft that passes every content check can be approved.");
-  if (!state.conn) throw new ServiceError("NOT_CONNECTED", 409, `Connect an account that ${publisher.name} is allowed to publish to.`);
+  if (!conn) throw new ServiceError(r.state === "reconnect" ? "RECONNECT_REQUIRED" : "NOT_CONNECTED", 409,
+    r.state === "needs_permission" ? `${publisher.name} isn't allowed to publish to ${r.provider.name}${r.account ? ` (${r.account})` : ""}. Grant "Publish content" in Integrations.`
+    : r.state === "reconnect" ? `${r.provider.name} needs reconnecting before ${publisher.name} can publish. Reconnect it in Integrations.`
+    : `Connect an account ${publisher.name} can publish to (${r.state === "not_connected" ? r.providers.map(p => p.name).join(", ") : "none available yet"}) in Integrations.`);
+  if (!PUBLISH_ACTIONS.includes(conn.action)) throw new ServiceError("NOT_SUPPORTED", 409, "This account can't publish image posts yet.");
   const img = imageUrlFor(business.products?.find(p => p.id === item.product_id) ?? null);
   if ("problem" in img) throw new ServiceError("NO_IMAGE", 409, img.problem);
   let out: ContentItem | null = null;
   // One approval click = one publish action (a repeated click with the same key returns the same one).
   const { created } = await requestAction(business.id, {
-    connectionId: state.conn.id, action: PUBLISH_ACTION, agent: publisher.id, idempotencyKey: `content:${item.id}:${approvalKey}`,
+    connectionId: conn.id, action: conn.action, agent: publisher.id, idempotencyKey: `content:${item.id}:${approvalKey}`,
     input: { image_url: img.url, caption: finalCaption(item), content_item_id: item.id }, correlationId: item.id, notBefore: when,
   }, (s, attempt) => {
     const i = itemsOf(s, business.id).find(x => x.id === itemId);
     if (!i || i.status !== "draft") throw new ServiceError("STATE_CONFLICT", 409, "This post changed meanwhile.");
-    Object.assign(i, { status: "scheduled", scheduled_for: when, approved_at: new Date().toISOString(), connection_id: state.conn!.id, action_attempt_id: attempt.id, error: null, updated_at: new Date().toISOString() });
+    Object.assign(i, { status: "scheduled", scheduled_for: when, approved_at: new Date().toISOString(), connection_id: conn.id, action_attempt_id: attempt.id, error: null, updated_at: new Date().toISOString() });
     audit(s, business.id, "owner", "content.approved", `content:${i.id}`, "scheduled", i.id, { scheduled_for: when, publisher: publisher.id });
     out = { ...i };
   });

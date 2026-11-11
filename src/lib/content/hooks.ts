@@ -8,9 +8,9 @@ import "server-only";
 //              aborted → back to draft/failed with the reason (nothing was published).
 import { registerActionGuard, registerActionObserver } from "@/lib/integrations/actions";
 import { audit } from "@/lib/integrations/connections";
-import { finalCaption, PUBLISH_ACTION } from "./service";
+import { finalCaption, PUBLISH_ACTIONS } from "./service";
 
-registerActionGuard(PUBLISH_ACTION, (s, a) => {
+for (const action of PUBLISH_ACTIONS) registerActionGuard(action, (s, a) => {
   const id = String(a.input.content_item_id ?? "");
   const item = ((s.content_items ?? {})[a.business_id] ?? []).find(i => i.id === id);
   if (!item) return { ok: false, code: "CONTENT_MISSING", message: "The post no longer exists." };
@@ -19,7 +19,7 @@ registerActionGuard(PUBLISH_ACTION, (s, a) => {
   return { ok: true };
 });
 
-registerActionObserver(PUBLISH_ACTION, (s, a) => {
+for (const action of PUBLISH_ACTIONS) registerActionObserver(action, (s, a) => {
   const id = String(a.input.content_item_id ?? "");
   const item = ((s.content_items ?? {})[a.business_id] ?? []).find(i => i.id === id);
   if (!item || item.action_attempt_id !== a.id) return;
@@ -28,7 +28,7 @@ registerActionObserver(PUBLISH_ACTION, (s, a) => {
   switch (a.status) {
     case "sending": case "unknown":
       if (item.status === "scheduled") item.status = "publishing";
-      item.error = a.status === "unknown" ? "Instagram didn't confirm; verifying before anything is retried." : null;
+      item.error = a.status === "unknown" ? "The platform didn't confirm; verifying before anything is retried." : null;
       return;
     case "prepared":     // a provider asked us to wait (retryable refusal): still scheduled
       item.status = "scheduled"; item.error = a.error?.message ?? null; return;

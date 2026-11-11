@@ -24,7 +24,9 @@ export function ContentWorkspace({ initial }: { initial: PlatformView }) {
   const base = `/api/w/${view.businessId}`;
   const publisher = view.workforce?.employees.find(e => e.status === "active" && e.skills.some(s => s.id === "publish_social_post"));
   const writer = view.workforce?.employees.find(e => e.status === "active" && e.skills.some(s => s.id === "draft_caption"));
-  const igConnected = view.connections.some(c => c.connector === "instagram" && c.status === "active");
+  // Provider-independent: any connected account the publishing employee is allowed to publish to.
+  const publishVia = view.readiness?.ready.find(r => r.capability === "publish_social_post")?.via ?? null;
+  const igConnected = !!publishVia;
   const live = view.content.some(i => i.status === "scheduled" || i.status === "publishing");
 
   // While something is scheduled, keep the page current. The page is NOT what publishes: the background worker is.
@@ -79,7 +81,7 @@ export function ContentWorkspace({ initial }: { initial: PlatformView }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <span className={view.ai.live ? "pill pill-ok" : "pill"}>{view.ai.live ? "NEAR AI (live)" : view.ai.label}</span>
-            <span className={igConnected ? "pill pill-ok" : "pill pill-warn"}>{igConnected ? "Instagram connected" : "Instagram not connected"}</span>
+            <span className={igConnected ? "pill pill-ok" : "pill pill-warn"}>{publishVia ? `Publishing via ${publishVia}` : "No publishing account connected"}</span>
           </div>
         </div>
         <p className="notice mt-3">{view.background.note}</p>
@@ -161,7 +163,7 @@ export function ContentWorkspace({ initial }: { initial: PlatformView }) {
                             <label className="field-label" htmlFor={`when-${i.id}`}>Publish at</label>
                             <input id={`when-${i.id}`} className="field" type="datetime-local" value={when[i.id] ?? localInput(new Date(Date.now() + 5 * 60_000))} onChange={e => setWhen({ ...when, [i.id]: e.target.value })} />
                           </div>
-                          <button type="button" className="btn btn-primary btn-sm" disabled={!!busy || !igConnected} title={igConnected ? undefined : "Connect Instagram on the Workforce page first"}
+                          <button type="button" className="btn btn-primary btn-sm" disabled={!!busy || !igConnected} title={igConnected ? undefined : "Connect a publishing account in Integrations first"}
                             onClick={() => post(`approve-${i.id}`, { action: "approve", item_id: i.id, scheduled_for: new Date(when[i.id] ?? localInput(new Date(Date.now() + 5 * 60_000))).toISOString(), approval_key: newKey() })}>
                             {busy === `approve-${i.id}` ? "Scheduling…" : "Approve & schedule"}
                           </button>

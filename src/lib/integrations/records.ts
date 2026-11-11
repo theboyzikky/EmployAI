@@ -15,7 +15,15 @@ export type ConnectionRecord = {
   business_id: string;
   connector: string;
   label: string;
-  status: "active" | "disabled";
+  /**
+   *  active           usable (subject to grants)
+   *  disabled         paused by the owner
+   *  reauth_required  the provider refused the credentials (revoked, expired beyond refresh, missing scopes)
+   *  disconnected     the owner disconnected it: credentials deleted, grants cleared
+   */
+  status: "active" | "disabled" | "reauth_required" | "disconnected";
+  /** How it was authorised and what we know about the credential (never the credential itself). */
+  auth?: ConnectionAuth;
   reality: "real" | "simulated";
   /** Non-secret settings only. */
   config: Record<string, unknown>;
@@ -25,6 +33,21 @@ export type ConnectionRecord = {
   routes: ConnectionRoute[];
   created_at: string;
   updated_at: string;
+};
+
+export type ConnectionAuth = {
+  method: "oauth" | "token" | "signed_webhook";
+  /** Account shown to the owner (username, email address, bot name). */
+  account: string | null;
+  /** Scopes the provider actually granted (OAuth). */
+  scopes: string[];
+  /** When the current access token expires (null = no known expiry). */
+  expires_at: string | null;
+  /** True when EmployAI can renew the token without the owner. */
+  refreshable: boolean;
+  /** Why the owner must reconnect (when status is reauth_required). */
+  problem: string | null;
+  checked_at: string | null;
 };
 
 export type InboundEventStatus = "received" | "routed" | "unrouted" | "ignored";

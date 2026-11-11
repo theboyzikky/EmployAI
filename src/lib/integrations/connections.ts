@@ -9,8 +9,10 @@ import { AGENT_ORDER } from "@/lib/catalogue/catalogue";
 import { discoveryRepository, type DevState } from "@/lib/discovery/store";
 import type { ActivityEvent, Actor } from "@/lib/runs/types";
 import { decryptSecrets, encryptSecrets } from "./credentials";
-import type { ConnectionGrant, ConnectionRecord, ConnectionRoute } from "./records";
+import { PERMISSIONS, permissionOf, provides, type Permission } from "./catalogue";
+import type { ConnectionAuth, ConnectionGrant, ConnectionRecord, ConnectionRoute } from "./records";
 import { connectorFor } from "./registry";
+import type { Connector } from "./types";
 
 export class IntegrationError extends Error {
   constructor(readonly code: string, readonly status: number, message: string) { super(message); this.name = "IntegrationError"; }
@@ -62,8 +64,28 @@ function validateGrantsAndRoutes(connectorKey: string, grants: unknown, routes: 
   return { grants: outG, routes: outR };
 }
 
-/** Create a connection. Returns its view and any secrets to show the owner ONCE (never stored in clear). */
-export async function createConnection(businessId: string, input: { connector: string; label: string; setup: unknown; grants?: unknown; routes?: unknown }): Promise<{ view: ConnectionView; revealOnce: Record<string, string> }> {
+/**
+ * Least-privilege defaults: each action is granted ONLY to workforce employees whose skills need one of
+ * its capabilities (provider-independent: "publish_social_post" → whoever publishes, on any platform).
+ * Nobody else gets anything. The owner can change every grant afterwards (setEmployeePermissions), and
+ * per-item approvals (posts, payments) still apply on top.
+ */
+export function applyDefaultGrants(s: DevState, businessId: string, rec: ConnectionRecord, connector: Connector): void {
+  const wf = s.businesses[businessId]?.workforce;
+  for (const [action, spec] of Object.entries(connector.actions)) {
+    if (!spec.capability) continue;
+    for (const e of wf?.employees ?? []) if (e.integrations.some(i => provides(spec, i.capability))) {
+      const g = rec.grants.find(x => x.agent === e.id);
+      if (g) { if (!g.actions.includes(action)) g.actions.push(action); } else rec.grants.push({ agent: e.id, actions: [action] });
+    }
+  }
+}
+
+/**
+ * Create a connection (or, with replaceId, reconnect an existing one: same id, grants, routes and history;
+ * only its credentials change). Returns its view and any secrets to show the owner ONCE.
+ */
+export async function createConnection(businessId: string, input: { connector: string; label: string; setup: unknown; grants?: unknown; routes?: unknown; auth?: Omit<ConnectionAuth, "checked_at" | "problem">; replaceId?: string | null }): Promise<{ view: ConnectionView; revealOnce: Record<string, string> }> {
   const connector = connectorFor(input.connector);
   if (!connector) throw new IntegrationError("VALIDATION_FAILED", 400, "Unknown integration.");
   const label = (input.label ?? "").trim();
@@ -72,31 +94,50 @@ export async function createConnection(businessId: string, input: { connector: s
   let setup;
   try { setup = await connector.setup(input.setup); }
   catch (e) { throw new IntegrationError("VALIDATION_FAILED", 400, e instanceof Error ? e.message.slice(0, 200) : "Invalid settings."); }
-  const id = newConnectionId();
+  const id = input.replaceId && CONNECTION_ID.test(input.replaceId) ? input.replaceId : newConnectionId();
   const secrets = Object.keys(setup.secrets).length ? encryptSecrets(businessId, id, setup.secrets) : null;   // CredentialError → fail closed
   const now = new Date().toISOString();
-  const rec: ConnectionRecord = { id, business_id: businessId, connector: connector.key, label, status: "active", reality: connector.reality, config: setup.config, secrets, grants, routes, created_at: now, updated_at: now };
+  const cfg = setup.config as { username?: unknown; email?: unknown };
+  const account = String(cfg.username ?? cfg.email ?? "") || null;
+  const auth: ConnectionAuth = { method: "token", scopes: [], expires_at: null, refreshable: false, ...(input.auth ?? {}), account: input.auth?.account ?? account, problem: null, checked_at: now };
+  const rec: ConnectionRecord = { id, business_id: businessId, connector: connector.key, label, status: "active", reality: connector.reality, config: setup.config, secrets, grants, routes, auth, created_at: now, updated_at: now };
+  if (input.replaceId) {
+    const view = await discoveryRepository().transact(businessId, s => {
+      const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === input.replaceId && x.connector === connector.key);
+      if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
+      const wasDisconnected = c.status === "disconnected";
+      Object.assign(c, { status: "active", config: setup.config, secrets, auth, label, updated_at: now });
+      if (wasDisconnected || c.grants.length === 0) applyDefaultGrants(s, businessId, c, connector);
+      audit(s, businessId, "owner", "connection.reconnected", `connection:${c.id}`, "active", c.id, { connector: connector.key, account });
+      return connectionView(c);
+    });
+    await activateConnection(businessId, id, connector, setup);
+    return { view, revealOnce: setup.revealOnce };
+  }
   await discoveryRepository().transact(businessId, s => {
     if (!s.businesses[businessId]) throw new IntegrationError("NOT_FOUND", 404, "Not found.");
     for (const who of [...grants.map(g => g.agent), ...routes.map(r => r.agent)]) if (!employeeKnown(s, businessId, who)) throw new IntegrationError("VALIDATION_FAILED", 400, "A grant or route names an employee this business doesn't have.");
-    // No explicit grants: each action goes to the workforce employees whose skills need its CAPABILITY
-    // (provider-independent: "social.publish" → whoever publishes, whatever the platform).
-    if (grants.length === 0) {
-      const wf = s.businesses[businessId]?.workforce;
-      for (const [action, spec] of Object.entries(connector.actions)) {
-        if (!spec.capability) continue;
-        for (const e of wf?.employees ?? []) if (e.integrations.some(i => i.capability === spec.capability)) {
-          const g = rec.grants.find(x => x.agent === e.id);
-          if (g) { if (!g.actions.includes(action)) g.actions.push(action); } else rec.grants.push({ agent: e.id, actions: [action] });
-        }
-      }
-    }
+    if (grants.length === 0) applyDefaultGrants(s, businessId, rec, connector);
     const list = ((s.connections ??= {})[businessId] ??= []);
     if (list.length >= MAX_CONNECTIONS_PER_BUSINESS) throw new IntegrationError("LIMIT_REACHED", 409, `A business can have up to ${MAX_CONNECTIONS_PER_BUSINESS} connections.`);
     list.push(rec);
     audit(s, businessId, "owner", "connection.created", `connection:${id}`, "active", id, { connector: connector.key, reality: connector.reality, grants: rec.grants.map(g => g.agent), routes: routes.length });
   });
+  await activateConnection(businessId, id, connector, setup);
   return { view: connectionView(rec), revealOnce: setup.revealOnce };
+}
+
+/** Provider-side activation (e.g. Telegram setWebhook). Its result is recorded in config; never fatal. */
+async function activateConnection(businessId: string, id: string, connector: Connector, setup: { config: Record<string, unknown>; secrets: Record<string, string> }) {
+  if (!connector.activate) return;
+  const base = (process.env.EMPLOYAI_PUBLIC_URL ?? "").replace(/\/+$/, "");
+  const publicUrl = /^https:\/\//.test(base) ? base : null;
+  let r: { ok: boolean; detail: string };
+  try { r = await connector.activate({ connectionId: id, publicUrl, config: setup.config, secrets: setup.secrets }); } catch { r = { ok: false, detail: "Activation failed." }; }
+  await discoveryRepository().transact(businessId, s => {
+    const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === id);
+    if (c) { c.config = { ...c.config, activation: r.ok ? "ok" : "pending", activation_detail: r.detail.slice(0, 200) }; c.updated_at = new Date().toISOString(); }
+  });
 }
 
 export async function listConnections(businessId: string): Promise<ConnectionView[]> {
@@ -108,6 +149,7 @@ export async function setConnectionStatus(businessId: string, connectionId: stri
   return discoveryRepository().transact(businessId, s => {
     const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId);
     if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
+    if (c.status === "reauth_required" || c.status === "disconnected") throw new IntegrationError("RECONNECT_REQUIRED", 409, "Reconnect this account first.");
     if (c.status !== status) {
       c.status = status; c.updated_at = new Date().toISOString();
       audit(s, businessId, "owner", status === "disabled" ? "connection.disabled" : "connection.enabled", `connection:${connectionId}`, status, connectionId);
@@ -120,5 +162,98 @@ export async function setConnectionStatus(businessId: string, connectionId: stri
 export async function loadConnectionForUse(businessId: string, connectionId: string): Promise<{ record: ConnectionRecord; secrets: Record<string, string> } | null> {
   const record = await discoveryRepository().readState(businessId, s => ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId) ?? null);
   if (!record) return null;
-  return { record, secrets: record.secrets ? decryptSecrets(businessId, record.id, record.secrets) : {} };
+  const secrets = record.secrets ? decryptSecrets(businessId, record.id, record.secrets) : {};
+  // OAuth tokens are renewed here, before use, when they are about to expire (oauth.ts registers it).
+  const hook = (globalThis as unknown as { [REFRESH]?: RefreshHook })[REFRESH];
+  if (hook && record.auth?.method === "oauth" && record.status === "active") return hook(businessId, record, secrets);
+  return { record, secrets };
+}
+
+type RefreshHook = (businessId: string, record: ConnectionRecord, secrets: Record<string, string>) => Promise<{ record: ConnectionRecord; secrets: Record<string, string> }>;
+const REFRESH = Symbol.for("employai.oauthRefresh");
+/** oauth.ts registers the token refresher (keeps this module free of provider details). */
+export function registerTokenRefresher(fn: RefreshHook) { (globalThis as unknown as { [REFRESH]?: RefreshHook })[REFRESH] = fn; }
+
+/** Thrown when a token renewal failed for a temporary reason (nothing was sent; try later). */
+export class CredentialRefreshFailed extends Error { constructor(message: string) { super(message); this.name = "CredentialRefreshFailed"; } }
+
+/** Thrown when credentials can't be used until the owner reconnects (nothing was sent). */
+export class ReconnectRequired extends Error { constructor(message: string) { super(message); this.name = "ReconnectRequired"; } }
+
+/** The permission categories this connection's connector supports, and which actions each covers. */
+export function connectionPermissions(connector: Connector): Array<{ permission: Permission; label: string; actions: string[]; viaRoutes: boolean }> {
+  const out = new Map<Permission, { actions: string[]; viaRoutes: boolean }>();
+  for (const [name, spec] of Object.entries(connector.actions)) { const p = permissionOf(spec); const e = out.get(p) ?? { actions: [], viaRoutes: false }; e.actions.push(name); out.set(p, e); }
+  // Receiving messages is granted by routing inbound message events to the employee.
+  if (connector.eventTypes.includes("message.received")) { const e = out.get("read_messages") ?? { actions: [], viaRoutes: false }; e.viaRoutes = true; out.set("read_messages", e); }
+  return [...out.entries()].map(([permission, v]) => ({ permission, label: PERMISSIONS[permission].label, ...v }));
+}
+
+/** Owner sets exactly which permission categories one employee holds on one connection. */
+export async function setEmployeePermissions(businessId: string, connectionId: string, employeeId: string, permissions: Permission[]): Promise<ConnectionView> {
+  return discoveryRepository().transact(businessId, s => {
+    const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId);
+    if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
+    if (c.status === "disconnected") throw new IntegrationError("RECONNECT_REQUIRED", 409, "Reconnect this account first.");
+    if (!employeeKnown(s, businessId, employeeId)) throw new IntegrationError("VALIDATION_FAILED", 400, "That employee doesn't exist.");
+    const connector = connectorFor(c.connector);
+    if (!connector) throw new IntegrationError("CONNECTOR_UNAVAILABLE", 409, "This integration isn't available on this server.");
+    const offered = connectionPermissions(connector);
+    const want = new Set(permissions.filter(p => offered.some(o => o.permission === p)));
+    const actions = offered.filter(o => want.has(o.permission)).flatMap(o => o.actions);
+    c.grants = c.grants.filter(g => g.agent !== employeeId);
+    if (actions.length) c.grants.push({ agent: employeeId, actions });
+    if (offered.some(o => o.viaRoutes)) {
+      c.routes = c.routes.filter(r => !(r.agent === employeeId && r.event_type === "message.received"));
+      // One employee receives a connection's incoming messages; granting it moves the route.
+      if (want.has("read_messages")) { c.routes = c.routes.filter(r => r.event_type !== "message.received"); c.routes.push({ event_type: "message.received", agent: employeeId }); }
+    }
+    c.updated_at = new Date().toISOString();
+    audit(s, businessId, "owner", "connection.permissions_changed", `connection:${c.id}`, c.status, c.id, { employee: employeeId, permissions: [...want] });
+    return connectionView(c);
+  });
+}
+
+/** Disconnect: delete the stored credentials and every grant/route. History (actions, events) is kept. */
+export async function disconnectConnection(businessId: string, connectionId: string): Promise<ConnectionView> {
+  return discoveryRepository().transact(businessId, s => {
+    const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId);
+    if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
+    Object.assign(c, { status: "disconnected", secrets: null, grants: [], routes: [], updated_at: new Date().toISOString() });
+    if (c.auth) c.auth = { ...c.auth, expires_at: null, refreshable: false, problem: null };
+    audit(s, businessId, "owner", "connection.disconnected", `connection:${c.id}`, "disconnected", c.id, { connector: c.connector });
+    return connectionView(c);
+  });
+}
+
+/** The provider refused our credentials: stop using them until the owner reconnects. */
+export async function markReauthRequired(businessId: string, connectionId: string, problem: string): Promise<void> {
+  await discoveryRepository().transact(businessId, s => {
+    const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId);
+    if (!c || c.status === "disconnected") return;
+    const was = c.status;
+    c.status = "reauth_required";
+    c.auth = { ...(c.auth ?? { method: "token", account: null, scopes: [], expires_at: null, refreshable: false, checked_at: null }), problem: problem.slice(0, 200) };
+    c.updated_at = new Date().toISOString();
+    if (was !== "reauth_required") audit(s, businessId, "system", "connection.reauth_required", `connection:${c.id}`, "reauth_required", c.id, { connector: c.connector });
+  });
+}
+
+/** Owner's "Check connection": ask the provider whether the credentials still work. */
+export async function checkConnection(businessId: string, connectionId: string): Promise<ConnectionView> {
+  const loaded = await loadConnectionForUse(businessId, connectionId).catch(e => { if (e instanceof ReconnectRequired) return null; throw e; });
+  const record = await discoveryRepository().readState(businessId, s => ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId) ?? null);
+  if (!record) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
+  if (!loaded || record.status === "disconnected") return connectionView(record);
+  const connector = connectorFor(record.connector);
+  type Check = { ok: true; detail?: string } | { ok: false; reauth: boolean; detail: string };
+  const r: Check = connector?.checkAuth ? await connector.checkAuth({ config: loaded.record.config, secrets: loaded.secrets }).catch((): Check => ({ ok: false, reauth: false, detail: "The provider couldn't be reached." })) : { ok: true };
+  if (!r.ok && r.reauth) await markReauthRequired(businessId, connectionId, r.detail);
+  return discoveryRepository().transact(businessId, s => {
+    const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId)!;
+    if (c.auth) c.auth.checked_at = new Date().toISOString();
+    if (r.ok && c.status === "reauth_required") { c.status = "active"; if (c.auth) c.auth.problem = null; }
+    audit(s, businessId, "owner", "connection.checked", `connection:${c.id}`, r.ok ? "ok" : "failed", c.id, r.ok ? {} : { code: "CHECK_FAILED" });
+    return connectionView(c);
+  });
 }

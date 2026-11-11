@@ -53,8 +53,8 @@ describe("workforce planning is driven by the owner's goals, not a fixed list", 
     expect(w.employees.map(e => e.template)).toEqual(["orchestrator", "content_creator", "social_media_manager", "marketing_analyst"]);
     const smm = w.employees.find(e => e.template === "social_media_manager")!;
     expect(smm.skills.find(s => s.id === "publish_social_post")).toMatchObject({ status: "operational", autonomy: "approval" });
-    expect(smm.integrations.map(i => i.capability)).toContain("social.publish");
-    expect(smm.integrations.find(i => i.capability === "social.publish")!.providers.filter(p => p.status === "available").map(p => p.name)).toEqual(["Instagram"]);
+    expect(smm.integrations.map(i => i.capability)).toContain("publish_social_post");
+    expect(smm.integrations.find(i => i.capability === "publish_social_post")!.providers.filter(p => p.status === "available").map(p => p.name)).toEqual(["Instagram"]);
     expect(w.approvals.some(a => a.includes("Publish approved posts"))).toBe(true);
   });
 

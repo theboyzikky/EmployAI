@@ -14,7 +14,7 @@ import "server-only";
 // Payments never go through here: money moves only through the NEAR treasury path (payment-executor.ts).
 import { randomUUID } from "node:crypto";
 import { discoveryRepository, type DevState } from "@/lib/discovery/store";
-import { audit, IntegrationError, loadConnectionForUse } from "./connections";
+import { audit, CredentialRefreshFailed, IntegrationError, loadConnectionForUse, ReconnectRequired } from "./connections";
 import type { ActionAttemptRecord, ActionStatus } from "./records";
 import { actionSpec } from "./registry";
 import { enqueueTaskIn } from "@/lib/automation/tasks";
@@ -28,6 +28,8 @@ const backoffMs = (n: number) => Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0,
 export const ACTIONS_PER_EMPLOYEE_PER_DAY = () => Number(process.env.EMPLOYAI_LIMIT_ACTIONS_PER_EMPLOYEE_DAY) || 200;
 const KEY = /^[A-Za-z0-9:._-]{8,128}$/;
 const TERMINAL: readonly ActionStatus[] = ["done", "rejected", "aborted", "escalated"];
+/** Rejection codes connectors use when the provider refuses OUR credentials (not the content). */
+export const AUTH_FAILURES = new Set(["AUTH_REVOKED", "AUTH_EXPIRED", "INSUFFICIENT_SCOPE", "RECONNECT_REQUIRED"]);
 const INSTANCE = randomUUID();
 
 const attemptsOf = (s: DevState, b: string) => ((s.action_attempts ??= {})[b] ??= []);
@@ -178,9 +180,13 @@ async function deliver(businessId: string, a: ActionAttemptRecord, owner: string
     const conn = await loadConnectionForUse(businessId, a.connection_id);
     if (!conn) throw new Error("connection gone");
     outcome = await found.spec.execute({ businessId, connectionId: a.connection_id, idempotencyKey: a.idempotency_key, config: conn.record.config, secrets: conn.secrets }, a.input);
-  } catch {
-    // Failing to even start (credentials, connection) means nothing was sent; anything after send is unknown.
-    outcome = { kind: "unknown", detail: "The delivery failed in an unexpected way; its outcome is unknown." };
+  } catch (e) {
+    // Credentials that must be reconnected are detected BEFORE anything is sent: provably not done.
+    // Anything else is treated as unknown (never "done" without proof).
+    outcome = e instanceof ReconnectRequired
+      ? { kind: "rejected", retryable: false, code: "RECONNECT_REQUIRED", detail: e.message }
+      : e instanceof CredentialRefreshFailed ? { kind: "rejected", retryable: true, code: "PROVIDER_UNAVAILABLE", detail: e.message }
+      : { kind: "unknown", detail: "The delivery failed in an unexpected way; its outcome is unknown." };
   }
   await settle(businessId, a.id, owner, now.deliveries, outcome);
   return "stop";
@@ -197,6 +203,15 @@ async function settle(businessId: string, attemptId: string, owner: string, deli
       audit(s, businessId, "system", "action.retry_scheduled", `action:${x.id}`, "prepared", x.correlation_id, { code: o.code, retry_at: x.retry_at });
     } else if (o.kind === "rejected") {
       x.status = "rejected"; x.error = { code: o.code, message: o.detail };
+      // The provider refused our credentials: the connection stops being used until the owner reconnects.
+      if (AUTH_FAILURES.has(o.code)) {
+        const c = ((s.connections ?? {})[businessId] ?? []).find(k => k.id === x.connection_id);
+        if (c && c.status === "active") {
+          c.status = "reauth_required"; c.updated_at = new Date().toISOString();
+          c.auth = { ...(c.auth ?? { method: "token", account: null, scopes: [], expires_at: null, refreshable: false, checked_at: null }), problem: o.detail.slice(0, 200) };
+          audit(s, businessId, "system", "connection.reauth_required", `connection:${c.id}`, "reauth_required", x.correlation_id, { code: o.code });
+        }
+      }
       audit(s, businessId, "system", "action.rejected", `action:${x.id}`, "rejected", x.correlation_id, { code: o.code });
     } else {
       x.status = "unknown"; x.error = { code: "OUTCOME_UNKNOWN", message: o.detail };

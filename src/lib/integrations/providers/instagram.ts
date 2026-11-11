@@ -1,6 +1,6 @@
 import "server-only";
 // REAL connector: Instagram (Instagram API with Instagram Login), the first provider of the
-// provider-independent "social.publish" capability. Facebook, TikTok, LinkedIn and X can implement the
+// provider-independent "publish_social_post" capability. Facebook, TikTok, LinkedIn and X can implement the
 // same capability later; nothing outside this file knows it's Instagram.
 //
 // Owner setup: an Instagram professional account and an access token with instagram_business_basic +
@@ -32,6 +32,14 @@ async function call(method: "GET" | "POST", path: string, token: string, body?: 
 /** Meta's error text (never contains the token). */
 const metaError = (r: Res) => { const e = (r.json.error ?? {}) as { message?: string; code?: number }; return `${e.message ?? `HTTP ${r.status || "no response"}`}${e.code ? ` (code ${e.code})` : ""}`.slice(0, 240); };
 
+/** Meta's codes for OUR credentials being refused: 190 = invalid/expired/revoked token; 10 and 200–299 = permission missing. */
+function authFailure(r: Res): "AUTH_REVOKED" | "INSUFFICIENT_SCOPE" | null {
+  const code = Number((r.json.error as { code?: unknown } | undefined)?.code);
+  if (r.status === 401 || code === 190) return "AUTH_REVOKED";
+  if (code === 10 || (code >= 200 && code < 300)) return "INSUFFICIENT_SCOPE";
+  return null;
+}
+
 const PublishInput = z.object({
   image_url: z.string().url().max(2048).refine(u => u.startsWith("https://"), "The image must be at a public https URL."),
   caption: z.string().min(1).max(2200),
@@ -45,16 +53,24 @@ export const instagramConnector: Connector = {
   reality: "real",
   eventTypes: [],
   async setup(input) {
-    const token = String((input as { access_token?: unknown } | null)?.access_token ?? "").trim();
+    // Either an OAuth result (Instagram Login, oauth.ts) or a token the owner generated in the Meta App Dashboard.
+    const i = (input ?? {}) as { access_token?: unknown; oauth?: { access_token?: unknown } };
+    const token = String(i.oauth?.access_token ?? i.access_token ?? "").trim();
     if (token.length < 20 || /\s/.test(token)) throw new Error("Paste the Instagram access token from the Meta App Dashboard.");
     const me = await call("GET", "/me?fields=user_id,username,account_type", token);
     if (!me.ok || typeof me.json.user_id !== "string" && typeof me.json.user_id !== "number") throw new Error(`Instagram didn't accept the token: ${metaError(me)}`);
     return { config: { ig_user_id: String(me.json.user_id), username: String(me.json.username ?? ""), account_type: String(me.json.account_type ?? "") }, secrets: { access_token: token }, revealOnce: {} };
   },
+  async checkAuth({ secrets }) {
+    const me = await call("GET", "/me?fields=user_id,username", secrets.access_token ?? "");
+    if (me.ok) return { ok: true, detail: `Connected as @${String(me.json.username ?? "")}` };
+    const f = authFailure(me);
+    return { ok: false, reauth: !!f, detail: f ? `Instagram refused the stored token: ${metaError(me)}` : `Instagram couldn't be reached: ${metaError(me)}` };
+  },
   actions: {
     "instagram.publish_image": {
       sideEffect: "publish",
-      capability: "social.publish",
+      capability: "publish_social_post", permission: "publish_content",
       idempotency: "none",
       parse: input => PublishInput.parse(input),
       async execute(ctx: ActionContext, input): Promise<ActionOutcome> {
@@ -62,6 +78,8 @@ export const instagramConnector: Connector = {
         if (!token || !ig) return { kind: "rejected", retryable: false, code: "NOT_CONNECTED", detail: "The Instagram connection has no account or token." };
         // 1 · container (nothing public yet)
         const c = await call("POST", `/${ig}/media`, token, { image_url: input.image_url, caption: input.caption });
+        const cAuth = authFailure(c);
+        if (cAuth) return { kind: "rejected", retryable: false, code: cAuth, detail: `Instagram refused EmployAI's access (${metaError(c)}). Reconnect Instagram. Nothing was published.` };
         if (!c.ok || typeof c.json.id !== "string") return { kind: "rejected", retryable: c.status === 0 || c.status >= 500 || c.status === 429, code: "CONTAINER_FAILED", detail: `Instagram couldn't prepare the post: ${metaError(c)}. Nothing was published.` };
         const container = c.json.id;
         // 2 · wait for processing (bounded), still nothing public
@@ -75,6 +93,8 @@ export const instagramConnector: Connector = {
         // 3 · publish — from here an error means we can't know
         const p = await call("POST", `/${ig}/media_publish`, token, { creation_id: container }, 30_000);
         if (p.status === 0 || p.status >= 500) return { kind: "unknown", detail: "Instagram didn't confirm the publication (timeout or server error); it may or may not be live." };
+        const pAuth = authFailure(p);
+        if (pAuth) return { kind: "rejected", retryable: false, code: pAuth, detail: `Instagram refused EmployAI's access (${metaError(p)}). Reconnect Instagram.` };
         if (!p.ok || typeof p.json.id !== "string") return { kind: "rejected", retryable: p.status === 429, code: "PUBLISH_REFUSED", detail: `Instagram refused to publish: ${metaError(p)}.` };
         const mediaId = p.json.id;
         const m = await call("GET", `/${mediaId}?fields=permalink,timestamp`, token);

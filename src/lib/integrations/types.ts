@@ -67,8 +67,10 @@ export type ActionContext = {
 
 export type ActionSpec = {
   sideEffect: SideEffect;
-  /** The provider-independent capability this action implements (e.g. "social.publish"). */
-  capability?: string;
+  /** The provider-independent capability (or capabilities) this action implements (e.g. "publish_social_post"). */
+  capability?: string | readonly string[];
+  /** The owner-facing permission category that grants it (default: derived from sideEffect). */
+  permission?: import("./catalogue").Permission;
   idempotency: IdempotencySupport;
   /** Validates and normalises the input; throws on anything unexpected (deterministic, no I/O). */
   parse(input: unknown): Record<string, unknown>;
@@ -96,6 +98,10 @@ export interface Connector {
   readonly actions: Readonly<Record<string, ActionSpec>>;
   /** Build a connection's config and secrets from the owner's input (deterministic + random secrets). */
   setup(input: unknown): Promise<ConnectorSetup> | ConnectorSetup;
+  /** Optional: re-check that the stored credentials still work (owner's "Check connection"). */
+  checkAuth?(ctx: { config: Readonly<Record<string, unknown>>; secrets: Readonly<Record<string, string>> }): Promise<{ ok: true; detail?: string } | { ok: false; reauth: boolean; detail: string }>;
+  /** Optional: called once after a connection is created (e.g. register a webhook with the provider). */
+  activate?(ctx: { connectionId: string; publicUrl: string | null; config: Readonly<Record<string, unknown>>; secrets: Readonly<Record<string, string>> }): Promise<{ ok: boolean; detail: string }>;
   /** Verify and parse an inbound request. Absent = this connector receives no events. */
   inbound?(req: { rawBody: string; headers: Headers; config: Readonly<Record<string, unknown>>; secrets: Readonly<Record<string, string>>; now: number }): InboundVerdict;
 }

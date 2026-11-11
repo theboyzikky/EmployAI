@@ -88,3 +88,4 @@ export { WebhooksLogoIcon } from "@phosphor-icons/react/dist/ssr/WebhooksLogo";
 export { CalendarBlankIcon } from "@phosphor-icons/react/dist/ssr/CalendarBlank";
 export { GoogleDriveLogoIcon } from "@phosphor-icons/react/dist/ssr/GoogleDriveLogo";
 export { CaretRightIcon } from "@phosphor-icons/react/dist/ssr/CaretRight";
+export { MessengerLogoIcon } from "@phosphor-icons/react/dist/ssr/MessengerLogo";

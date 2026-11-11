@@ -23,7 +23,7 @@ export type CapabilityDef = { label: string; permission: Permission; /** Provide
 export const CAPABILITY_DEFS: Record<string, CapabilityDef> = {
   publish_social_post: { label: "Publish social posts", permission: "publish_content" },
   schedule_publication: { label: "Schedule publications", permission: "publish_content", builtIn: "EmployAI background scheduler" },
-  read_social_messages: { label: "Read social comments and messages", permission: "read_messages" },
+  read_social_messages: { label: "Read customer messages", permission: "read_messages" },
   reply_to_customer: { label: "Reply to customers", permission: "send_messages" },
   reply_to_social_comments: { label: "Reply to social comments", permission: "send_messages" },
   send_message: { label: "Send messages to customers", permission: "send_messages" },

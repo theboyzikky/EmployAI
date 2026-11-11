@@ -1,13 +1,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Icon, ArrowLeftIcon, CalendarDotsIcon, FlowArrowIcon, ListBulletsIcon, PlayCircleIcon, PlugsIcon, ReceiptIcon, ShieldCheckIcon, SparkleIcon, UsersThreeIcon } from "@/components/icons";
+import { Icon, ArrowLeftIcon, CalendarDotsIcon, ChatCircleDotsIcon, FlowArrowIcon, ListBulletsIcon, PlayCircleIcon, PlugsIcon, ReceiptIcon, ShieldCheckIcon, SparkleIcon, UsersThreeIcon } from "@/components/icons";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cx } from "@/lib/cx";
 import { BusinessName } from "./BusinessName";
 import { KillSwitchControl } from "./KillSwitchControl";
 
-export type WorkspaceTab = "workforce" | "integrations" | "content" | "activity" | "team" | "workflows" | "runs" | "ledger" | "security";
+export type WorkspaceTab = "workforce" | "integrations" | "inbox" | "content" | "activity" | "team" | "workflows" | "runs" | "ledger" | "security";
 
 /**
  * Minimal business workspace: Team, Workflows and (M4) test Runs, with the in-app kill switch in the
@@ -17,6 +17,7 @@ export function WorkspaceShell({ businessId, businessName, tab, killSwitch, chil
   const tabs: Array<{ key: WorkspaceTab; label: string; href: string; icon: typeof UsersThreeIcon }> = [
     { key: "workforce", label: "Workforce", href: `/w/${businessId}/workforce`, icon: SparkleIcon },
     { key: "integrations", label: "Integrations", href: `/w/${businessId}/integrations`, icon: PlugsIcon },
+    { key: "inbox", label: "Inbox", href: `/w/${businessId}/inbox`, icon: ChatCircleDotsIcon },
     { key: "content", label: "Content", href: `/w/${businessId}/content`, icon: CalendarDotsIcon },
     { key: "activity", label: "Activity", href: `/w/${businessId}/activity`, icon: ListBulletsIcon },
     { key: "team", label: "Team", href: `/w/${businessId}/team`, icon: UsersThreeIcon },

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   CalendarBlankIcon, ChatsCircleIcon, EnvelopeIcon, FacebookLogoIcon, GoogleDriveLogoIcon, GoogleLogoIcon, Icon, InstagramLogoIcon,
-  LinkedinLogoIcon, MicrosoftOutlookLogoIcon, TelegramLogoIcon, TiktokLogoIcon, WebhooksLogoIcon, WhatsappLogoIcon, XLogoIcon, YoutubeLogoIcon,
+  LinkedinLogoIcon, MessengerLogoIcon, MicrosoftOutlookLogoIcon, TelegramLogoIcon, TiktokLogoIcon, WebhooksLogoIcon, WhatsappLogoIcon, XLogoIcon, YoutubeLogoIcon,
 } from "@/components/icons";
 import type { HubProvider, HubStatus, HubView, Permission } from "@/lib/platform/view";
 import { callPlatform } from "./platform-api";
@@ -13,6 +13,7 @@ const ICONS: Record<string, typeof InstagramLogoIcon> = {
   instagram: InstagramLogoIcon, facebook: FacebookLogoIcon, tiktok: TiktokLogoIcon, linkedin: LinkedinLogoIcon, x: XLogoIcon, youtube: YoutubeLogoIcon,
   gmail: GoogleLogoIcon, outlook: MicrosoftOutlookLogoIcon, imap_smtp: EnvelopeIcon,
   whatsapp_business: WhatsappLogoIcon, whatsapp_personal: WhatsappLogoIcon, telegram: TelegramLogoIcon, webchat: ChatsCircleIcon,
+  instagram_dm: InstagramLogoIcon, messenger: MessengerLogoIcon, linkedin_messaging: LinkedinLogoIcon,
   webhook: WebhooksLogoIcon, google_calendar: CalendarBlankIcon, google_drive: GoogleDriveLogoIcon,
 };
 /** Each provider's logo colour class (globals.css → .brand-*). */
@@ -20,6 +21,7 @@ const BRAND: Record<string, string> = {
   instagram: "brand-instagram", facebook: "brand-facebook", tiktok: "brand-tiktok", linkedin: "brand-linkedin", x: "brand-x", youtube: "brand-youtube",
   gmail: "brand-google", outlook: "brand-outlook", whatsapp_business: "brand-whatsapp", whatsapp_personal: "brand-whatsapp", telegram: "brand-telegram",
   google_calendar: "brand-calendar", google_drive: "brand-drive",
+  instagram_dm: "brand-instagram", messenger: "brand-messenger", linkedin_messaging: "brand-linkedin",
 };
 /** Gradients the Instagram and Google marks use (referenced from CSS by id). */
 function BrandGradients() {
@@ -170,7 +172,7 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
             {needsPermission.map(a => (
               <li key={`p-${a.employeeId}-${a.skill}`} className="flex flex-wrap items-center gap-2 text-sm text-muted">
                 <span><span className="font-semibold text-ink">{a.skillLabel} · {a.employee}.</span> {a.provider.name}{a.account ? ` (${a.account})` : ""} is connected; {a.employee} needs “{a.permissionLabel}”.</span>
-                <button type="button" className="conn-pill conn-pill-go" disabled={!!busy} onClick={() => post(`grant-${a.employeeId}`, { action: "grant", connection_id: a.connectionId, employee_id: a.employeeId, permission: a.permission })}>Allow</button>
+                <button type="button" className="conn-pill conn-pill-go" disabled={!!busy} onClick={() => post(`grant-${a.employeeId}`, { action: "grant", connection_id: a.connectionId, employee_id: a.employeeId, permissions: a.permissions })}>Allow</button>
               </li>
             ))}
           </ul>
@@ -205,7 +207,7 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
                       {p.lastFailure && <p className="text-sm text-danger">Last attempt ({new Date(p.lastFailure.at).toLocaleString()}): {p.lastFailure.reason}</p>}
                       {p.support === "implemented" && (
                         <ul className="space-y-0.5 text-xs">
-                          {yes(ck.oauthImplemented, "Sign-in on the platform's own website (OAuth) is built", "")}
+                          {yes(ck.oauthImplemented, "Authorization on the platform's own website or app is built", "")}
                           {yes(ck.credentialsConfigured, "Developer app credentials are configured on this server", "Developer app credentials aren't configured on this server yet")}
                           {yes(ck.accountConnected, "An account is connected", "No account is connected")}
                           <li className="text-muted">Reads: {ck.dataAccess.length ? ck.dataAccess.join("; ") : "nothing"}</li>
@@ -218,7 +220,7 @@ export function IntegrationsWorkspace({ initial, focus, returnTo, oauth }: { ini
                         <div className="notice text-xs">
                           <p className="font-semibold text-ink">Not ready to connect yet: developer setup required</p>
                           <p className="mt-1">Whoever runs EmployAI registers one {p.name} developer app, then sets <code>{p.setupMissing.join(", ")}</code> on the server. Business owners never do this.</p>
-                          <p className="mt-1">Callback URL to register: <code className="break-all">{p.callbackUrl ?? `https://<your EmployAI address>${p.callbackPath}`}</code></p>
+                          <p className="mt-1">{p.callbackPath?.startsWith("/api/hooks") ? "Webhook URL to register" : "Callback URL to register"}: <code className="break-all">{p.callbackUrl ?? `https://<your EmployAI address>${p.callbackPath}`}</code></p>
                         </div>
                       )}
 

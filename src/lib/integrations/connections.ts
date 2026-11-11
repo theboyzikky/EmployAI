@@ -199,7 +199,7 @@ export function heldPermissions(c: ConnectionRecord, connector: Connector, emplo
  * Owner sets exactly which permission categories one employee holds on one connection
  * (or, with { add }, grants one more on top of what it holds — the readiness panel's one-click "Allow").
  */
-export async function setEmployeePermissions(businessId: string, connectionId: string, employeeId: string, permissionsOrAdd: Permission[] | { add: Permission }): Promise<ConnectionView> {
+export async function setEmployeePermissions(businessId: string, connectionId: string, employeeId: string, permissionsOrAdd: Permission[] | { add: Permission | Permission[] }): Promise<ConnectionView> {
   return discoveryRepository().transact(businessId, s => {
     const c = ((s.connections ?? {})[businessId] ?? []).find(x => x.id === connectionId);
     if (!c) throw new IntegrationError("NOT_FOUND", 404, "That connection doesn't exist.");
@@ -208,7 +208,7 @@ export async function setEmployeePermissions(businessId: string, connectionId: s
     const connector = connectorFor(c.connector);
     if (!connector) throw new IntegrationError("CONNECTOR_UNAVAILABLE", 409, "This integration isn't available on this server.");
     const offered = connectionPermissions(connector);
-    const permissions = Array.isArray(permissionsOrAdd) ? permissionsOrAdd : [...heldPermissions(c, connector, employeeId), permissionsOrAdd.add];
+    const permissions = Array.isArray(permissionsOrAdd) ? permissionsOrAdd : [...heldPermissions(c, connector, employeeId), ...[permissionsOrAdd.add].flat()];
     const want = new Set(permissions.filter(p => offered.some(o => o.permission === p)));
     const actions = offered.filter(o => want.has(o.permission)).flatMap(o => o.actions);
     c.grants = c.grants.filter(g => g.agent !== employeeId);

@@ -34,9 +34,9 @@ export function WorkforceWorkspace({ initial, oauth }: { initial: PlatformView; 
     setBusy(null);
   }
   /** The owner explicitly allows one employee one permission on a connected account. */
-  async function allow(connectionId: string, employeeId: string, permission: string) {
+  async function allow(connectionId: string, employeeId: string, permissions: string[]) {
     setBusy(`allow-${employeeId}`); setError(null);
-    const r = await callPlatform(`${base}/integrations`, "POST", { action: "grant", connection_id: connectionId, employee_id: employeeId, permission });
+    const r = await callPlatform(`${base}/integrations`, "POST", { action: "grant", connection_id: connectionId, employee_id: employeeId, permissions });
     if (!r.ok) setError(r.message);
     const v = await callPlatform(`${base}/workforce`, "GET");
     if (v.ok && v.view) setView(v.view);
@@ -151,7 +151,7 @@ export function WorkforceWorkspace({ initial, oauth }: { initial: PlatformView; 
               <p className="text-sm font-semibold text-ink">Needs your attention</p>
               <ul className="mt-2 stack-sm">
                 {rd.reconnect.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.employee}: {r.provider.name} needs reconnecting. <button type="button" className="font-semibold text-accent" disabled={!!busy} onClick={() => connect(r.provider.key, r.connectionId)}>Reconnect</button></li>)}
-                {rd.needsPermission.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.provider.name}{r.account ? ` (${r.account})` : ""} is connected; {r.employee} needs “{r.permissionLabel}”. <button type="button" className="btn btn-primary btn-sm ml-1" disabled={!!busy} onClick={() => allow(r.connectionId, r.employeeId, r.permission)}>{busy === `allow-${r.employeeId}` ? "Allowing…" : "Allow"}</button></li>)}
+                {rd.needsPermission.map(r => <li key={`${r.employeeId}-${r.skill}`} className="text-sm text-ink">{r.skillLabel} · {r.provider.name}{r.account ? ` (${r.account})` : ""} is connected; {r.employee} needs “{r.permissionLabel}”. <button type="button" className="btn btn-primary btn-sm ml-1" disabled={!!busy} onClick={() => allow(r.connectionId, r.employeeId, r.permissions)}>{busy === `allow-${r.employeeId}` ? "Allowing…" : "Allow"}</button></li>)}
               </ul>
             </div>
           )}

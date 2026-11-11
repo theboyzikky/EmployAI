@@ -12,7 +12,7 @@ export type Readiness = {
   ready: Array<ReadinessItem & { via: string }>;
   /** One entry per missing capability, with every employee/skill that needs it and where to connect it. */
   missing: Array<{ capability: string; label: string; neededFor: ReadinessItem[]; providers: ProviderRef[]; why: string }>;
-  needsPermission: Array<ReadinessItem & { connectionId: string; provider: ProviderRef; account: string | null; permission: Permission; permissionLabel: string }>;
+  needsPermission: Array<ReadinessItem & { connectionId: string; provider: ProviderRef; account: string | null; permission: Permission; permissionLabel: string; /** everything the skill needs on this account (answering = read + send) */ permissions: Permission[] }>;
   reconnect: Array<ReadinessItem & { connectionId: string; provider: ProviderRef; problem: string | null }>;
   notYet: Array<ReadinessItem & { reason: string }>;
   demo: ReadinessItem[];
@@ -34,7 +34,7 @@ export function workforceReadiness(s: DevState, businessId: string): Readiness |
     const r = resolveCapability(s, businessId, e.id, cap);
     if (r.state === "built_in") out.ready.push({ ...item, via: r.label });
     else if (r.state === "ready") out.ready.push({ ...item, via: `${r.provider.name}${r.account ? ` (${r.account})` : ""}` });
-    else if (r.state === "needs_permission") out.needsPermission.push({ ...item, connectionId: r.connectionId, provider: r.provider, account: r.account, permission: CAPABILITY_DEFS[cap]?.permission ?? "manage", permissionLabel: PERMISSIONS[CAPABILITY_DEFS[cap]?.permission ?? "manage"].label });   // connected, but the owner hasn't granted it yet
+    else if (r.state === "needs_permission") out.needsPermission.push({ ...item, connectionId: r.connectionId, provider: r.provider, account: r.account, permission: CAPABILITY_DEFS[cap]?.permission ?? "manage", permissionLabel: cap === "reply_to_customer" ? "Read messages and Send messages" : PERMISSIONS[CAPABILITY_DEFS[cap]?.permission ?? "manage"].label, permissions: cap === "reply_to_customer" ? ["read_messages", "send_messages"] : [CAPABILITY_DEFS[cap]?.permission ?? "manage"] });   // connected, but the owner hasn't granted it yet
     else if (r.state === "reconnect") out.reconnect.push({ ...item, connectionId: r.connectionId, provider: r.provider, problem: r.problem });
     else if (r.state === "not_built") out.notYet.push({ ...item, reason: r.providers.length ? `No connector for ${r.providers.map(p => p.name).join(", ")} is built yet.` : "No provider offers this yet." });
     else {

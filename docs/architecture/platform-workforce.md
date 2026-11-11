@@ -85,3 +85,37 @@ The owner connects each account once in **Integrations** (`/w/[id]/integrations`
 | WhatsApp (personal app) | Unsupported: no official API. | Use WhatsApp Business. |
 
 Reading email and replying to customer enquiries automatically are **not built**. The Gmail and Outlook scopes are send-only, and the "answer enquiries" skill is planned. The Workforce tab says so instead of showing them as ready.
+
+## Customer messaging (Inbox)
+
+One support employee answers customers on every connected channel; the owner sees everything in **Inbox** (`/w/[id]/inbox`).
+
+| Piece | Where |
+|---|---|
+| Conversations, reply proposal schema, deterministic reply checks, offline (labelled) fallback | `src/lib/messaging/model.ts` |
+| Filing inbound messages, the employee's decision, approvals, owner replies, settings | `src/lib/messaging/service.ts` |
+| Send-time guard and delivery observer for every `<connector>.reply` action | `src/lib/messaging/hooks.ts` |
+| Channel contract (inbound payload, `ReplyInput`) | `src/lib/integrations/messaging-contract.ts` |
+| Platform webhooks | `/api/hooks/telegram` (secret-token header), `/api/hooks/meta` (verify token + X-Hub-Signature-256) |
+| Mailbox polling (Gmail, Outlook) | `poll_mailbox` task, `src/lib/automation/handlers.ts` |
+
+**How a message is handled.** A verified webhook (or a mailbox check) stores the message once per provider message id and queues a durable task. The worker files it in its conversation; if the owner has allowed an active employee with the *Answer customer enquiries* skill to read **and** send on that account, the employee classifies it and drafts a reply from the owner's approved knowledge and products only. Code then decides:
+- complaints, refunds, sensitive topics, missing facts, spam, or a closed 24-hour window (Instagram, Messenger, WhatsApp) → **escalated** to the owner (a suggested reply may wait as a draft);
+- default mode → **draft** waiting for the owner's approval;
+- "routine replies go automatically" → sent **only** if every check passes (no unapproved prices, no refund/discount/guarantee promises, no links, length).
+Leads are flagged (and handed to a sales employee when the workforce has one). Replies are durable actions on the same connection, re-checked at send time; an unconfirmed delivery waits for the owner and is never re-sent. An hourly cap per business limits AI replies.
+
+**Connecting each channel** (Connect → the provider's own authorization → back to EmployAI):
+
+| Channel | Authorization | Inbound | Outbound | Status (11 Nov 2026) |
+|---|---|---|---|---|
+| Telegram | Telegram deep link to EmployAI's bot → owner adds it under Telegram Business → Chatbots (Telegram shows the rights). Needs Telegram Premium. | `business_message` on the bot webhook | `sendMessage` with `business_connection_id` | Built; simulated tests only |
+| WhatsApp Business | Meta Embedded Signup window (Facebook Login for Business) | Meta webhook (`messages`) | Cloud API `/<PHONE_NUMBER_ID>/messages` | Built; simulated tests only |
+| Instagram Direct Messages | OAuth (Instagram Login, `instagram_business_manage_messages`) | Meta webhook (`messages`) | `graph.instagram.com/<IG_ID>/messages` | Built; simulated tests only |
+| Facebook Messenger | OAuth (Facebook Login, `pages_messaging`, `pages_manage_metadata`) | Meta webhook (`messages` on Page) | `/<PAGE_ID>/messages` (RESPONSE) | Built; simulated tests only |
+| Gmail | OAuth (`gmail.readonly` + `gmail.send`) | Polled (history.list) | `messages.send` in thread | Built; simulated tests only |
+| Outlook / Microsoft 365 | OAuth (`Mail.Read` + `Mail.Send`) | Polled (delta query, Focused) | `/messages/{id}/reply` | Built; simulated tests only |
+| LinkedIn messaging | — | — | — | Unsupported (partner-only API) |
+| Website chat | — | — | — | Not built |
+
+**Not built yet:** WhatsApp message templates (needed to write to a customer more than 24 hours after their last message), proactive follow-up campaigns, WhatsApp phone-number registration from EmployAI (finish it in WhatsApp Manager if a new number shows as pending), media attachments (shown as "[an attachment]").

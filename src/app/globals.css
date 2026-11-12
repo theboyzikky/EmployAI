@@ -72,7 +72,7 @@
   /* Dark neutrals: Primary black lifted with Black 100 (no hue), per owner request 2026-11-05. */
   --eai-surface: color-mix(in srgb, var(--black-100) 7%, var(--black-primary));    /* ≈ #111 */
   --eai-surface-2: color-mix(in srgb, var(--black-100) 11%, var(--black-primary));  /* ≈ #1b1b1b */
-  --eai-border: color-mix(in srgb, var(--black-100) 19%, var(--black-primary));     /* ≈ #2f2f2f */
+  --eai-border: color-mix(in srgb, var(--black-100) 16%, var(--black-primary));     /* ≈ #272727 (was 19% ≈ #2f2f2f): quieter outlines, still above surface-2 */
   --eai-fg: var(--black-100);
   --eai-on-fg: var(--black-primary);
   --eai-muted: color-mix(in srgb, var(--black-400) 80%, var(--black-primary)); /* sub text, darker ash (≈ #8d8d8d; ≥ 4.8:1 on every dark surface) */

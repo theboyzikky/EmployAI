@@ -2,6 +2,14 @@
 
 /* Dark-mode utilities follow the explicit theme attribute set by the theme toggle. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* Tailwind hover: utilities apply only on devices with a fine pointer that can hover (not touch). */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
 
 /* ============================================================================
    EmployAI design system
@@ -219,11 +227,13 @@
     color: var(--color-on-ink);
     border: 1px solid var(--color-ink);
   }
-  .btn-primary:hover {
-    background: var(--color-accent-solid);
-    border-color: var(--color-accent-solid);
-    color: var(--color-on-accent);
-    box-shadow: 0 10px 24px -12px var(--eai-glow-strong);
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover {
+      background: var(--color-accent-solid);
+      border-color: var(--color-accent-solid);
+      color: var(--color-on-accent);
+      box-shadow: 0 10px 24px -12px var(--eai-glow-strong);
+    }
   }
   /* Secondary: Black outline with black text; hover → deep purple accent. */
   .btn-secondary {
@@ -231,10 +241,12 @@
     color: var(--color-ink);
     border: 1px solid var(--color-ink);
   }
-  .btn-secondary:hover {
-    color: var(--color-accent);
-    border-color: var(--color-accent);
-    background: var(--color-accent-soft);
+  @media (hover: hover) and (pointer: fine) {
+    .btn-secondary:hover {
+      color: var(--color-accent);
+      border-color: var(--color-accent);
+      background: var(--color-accent-soft);
+    }
   }
   .btn:active:not(:disabled) {
     transform: scale(0.98);
@@ -260,10 +272,12 @@
     color: var(--color-ink);
     transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease;
   }
-  .icon-btn:hover {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-    background: var(--color-accent-soft);
+  @media (hover: hover) and (pointer: fine) {
+    .icon-btn:hover {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+      background: var(--color-accent-soft);
+    }
   }
 
   .chip {
@@ -280,10 +294,12 @@
     color: var(--color-ink);
     transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease;
   }
-  .chip:hover {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-    background: var(--color-accent-soft);
+  @media (hover: hover) and (pointer: fine) {
+    .chip:hover {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+      background: var(--color-accent-soft);
+    }
   }
 
   .card {
@@ -296,10 +312,12 @@
   .card-interactive {
     transition: transform 220ms var(--ease-out-soft), box-shadow 220ms ease, border-color 220ms ease;
   }
-  .card-interactive:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-lift);
-    border-color: var(--color-accent);
+  @media (hover: hover) and (pointer: fine) {
+    .card-interactive:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-lift);
+      border-color: var(--color-accent);
+    }
   }
 
   /* Static icon tile used in section cards (never swaps to Fill). */
@@ -537,7 +555,6 @@
 .eai-icon > .eai-icon-fill {
   opacity: 0;
 }
-.icon-host:hover .eai-icon[data-swap="true"] > .eai-icon-fill,
 .icon-host:focus-visible .eai-icon[data-swap="true"] > .eai-icon-fill,
 .icon-host:active .eai-icon[data-swap="true"] > .eai-icon-fill,
 .icon-host[aria-current="page"] .eai-icon[data-swap="true"] > .eai-icon-fill,
@@ -547,7 +564,6 @@
 .icon-host[data-active="true"] .eai-icon[data-swap="true"] > .eai-icon-fill {
   opacity: 1;
 }
-.icon-host:hover .eai-icon[data-swap="true"] > .eai-icon-regular,
 .icon-host:focus-visible .eai-icon[data-swap="true"] > .eai-icon-regular,
 .icon-host:active .eai-icon[data-swap="true"] > .eai-icon-regular,
 .icon-host[aria-current="page"] .eai-icon[data-swap="true"] > .eai-icon-regular,
@@ -556,6 +572,11 @@
 .icon-host[aria-expanded="true"] .eai-icon[data-swap="true"] > .eai-icon-regular,
 .icon-host[data-active="true"] .eai-icon[data-swap="true"] > .eai-icon-regular {
   opacity: 0;
+}
+/* Hover-triggered Fill only where a real pointer can hover (desktop); touch keeps active/selected/focus. */
+@media (hover: hover) and (pointer: fine) {
+  .icon-host:hover .eai-icon[data-swap="true"] > .eai-icon-fill { opacity: 1; }
+  .icon-host:hover .eai-icon[data-swap="true"] > .eai-icon-regular { opacity: 0; }
 }
 /* Disabled: muted Regular, never swaps. */
 .eai-icon[data-state="disabled"],
@@ -747,7 +768,7 @@ textarea.field { min-height: 5.5rem; resize: vertical; }
 .conn-name { display: flex; align-items: center; gap: 0.75rem; min-width: 0; font-size: 0.9375rem; font-weight: 500; color: var(--color-ink); }
 .conn-sub { display: block; font-size: 0.75rem; font-weight: 500; color: var(--color-muted); }
 .conn-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 0.3125rem 0.75rem; font-size: 0.8125rem; font-weight: 700; white-space: nowrap; border: 0; cursor: pointer; color: var(--color-ink); background: var(--color-surface-2); transition: filter 120ms ease; }
-.conn-pill:hover:not(:disabled) { filter: brightness(0.96); }
+@media (hover: hover) and (pointer: fine) { .conn-pill:hover:not(:disabled) { filter: brightness(0.96); } }
 .conn-pill:disabled { cursor: default; opacity: 0.7; }
 .conn-pill-go { color: var(--color-success); background: color-mix(in oklab, var(--color-success) 16%, transparent); }
 .conn-pill-on { color: var(--color-success); background: color-mix(in oklab, var(--color-success) 16%, transparent); }

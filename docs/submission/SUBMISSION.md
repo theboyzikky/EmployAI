@@ -34,7 +34,7 @@ Next.js 16 · TypeScript · Upstash Redis (shared store, compare-and-set commits
 |---|---|
 | Discovery, workforce planning, approval (live NEAR AI) | Implemented; tested live locally |
 | Integrations hub, explicit employee permissions, truthful statuses | Implemented; tested |
-| Customer messaging: classify, reply from catalogue, safety checks, approve/auto modes, order capture, escalation, Inbox | Implemented; **tested with simulated providers** (665 automated tests) |
+| Customer messaging: classify, reply from catalogue, safety checks, approve/auto modes, order capture, escalation, Inbox | Implemented; **tested with simulated providers** (664 automated tests) |
 | Telegram Business, WhatsApp, Instagram DMs, Messenger, Gmail, Outlook: connect, receive, reply | Implemented; **not yet tested with a real account.** Each needs the operator's developer app (and Telegram Premium, Meta App Review/business verification, or Google verification) |
 | Instagram & Facebook Page publishing with approval and scheduling | Implemented; simulated tests only (no real post yet) |
 | NEAR testnet payouts with the 5 safety layers | Implemented; **2 payouts verified on testnet** |

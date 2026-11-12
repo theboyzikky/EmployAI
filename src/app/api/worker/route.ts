@@ -10,7 +10,7 @@ import { qstashVerify } from "@/lib/automation/qstash";
 import { runDueTasks } from "@/lib/automation/worker";
 
 // Long enough for a batch of tasks; well inside Vercel Hobby's 300 s.
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 const Body = z.object({ business_id: z.uuid().optional() }).strict();
 

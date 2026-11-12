@@ -82,7 +82,7 @@ export async function createProvider(env: Env, deps: FactoryDeps = {}): Promise<
       const modelFor: Record<TaskName, string> = { discovery_turn: structured, business_analysis: structured, workforce_plan: structured, content_plan: structured, content_caption: structured, customer_reply: structured };
       const prices = await loadPrices(baseURL, [...new Set(Object.values(modelFor))], p, fetchImpl);
       const guard = new SpendingGuard({ provider: p, capUsdPerDay: cap, maxCalls, prices, today: deps.today, store: deps.spendStore, preflight: deps.preflight });
-      return new OpenAICompatibleProvider({ name: "nearai", baseURL, apiKey, modelFor, extraBody: NEAR_AI_EXTRA_BODY, guard, timeoutMs: Number(env.NEAR_AI_TIMEOUT_MS) || 60_000, fetchImpl });
+      return new OpenAICompatibleProvider({ name: "nearai", baseURL, apiKey, modelFor, extraBody: NEAR_AI_EXTRA_BODY, guard, timeoutMs: Number(env.NEAR_AI_TIMEOUT_MS) || 170_000, fetchImpl });
     }
     case "ollama": {
       const p = "ollama";

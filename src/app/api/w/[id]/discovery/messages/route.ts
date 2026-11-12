@@ -17,6 +17,9 @@ const Body = z.object({
  * in the same request. On an AI failure the message stays saved and the response is 502 with the
  * current state, so the client can retry without retyping.
  */
+// Structured NEAR AI calls can take over a minute; the provider timeout is 170 s.
+export const maxDuration = 180;
+
 export function POST(request: Request, ctx: RouteContext<"/api/w/[id]/discovery/messages">) {
   return ownerRoute(request, ctx.params, async (business, cid) => {
     const body = await readBody(request, Body, cid);

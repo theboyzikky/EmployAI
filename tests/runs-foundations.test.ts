@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { FileDevStore, setDiscoveryRepository } from "@/lib/discovery/store";
+import { FileDevStore, setDiscoveryRepository, type DiscoveryRepository } from "@/lib/discovery/store";
+import { sharedMode } from "./helpers/store";
 import { LockBusyError, isBusinessLockHeld, withBusinessLock } from "@/lib/locks";
 import { checkRunEligibility } from "@/lib/runs/eligibility";
 import { FINGERPRINT_ALG, canonicalJson, workflowFingerprint } from "@/lib/runs/fingerprint";
@@ -46,7 +47,8 @@ describe("D20 · one shared business lock", () => {
 });
 
 describe("§11.1 · store additions rewrite nothing", () => {
-  test("a copy of the current dev store loads unchanged, and reading never rewrites the file", async () => {
+  // File-store specific (it reads a copy of the real local file); the migration tests cover the shared store.
+  test.skipIf(sharedMode)("a copy of the current dev store loads unchanged, and reading never rewrites the file", async () => {
     const real = path.join(process.cwd(), ".data", "dev-store.json");
     if (!existsSync(real)) return;                                   // nothing to compare on a fresh checkout
     const { dir, file } = tempStore();
@@ -61,7 +63,9 @@ describe("§11.1 · store additions rewrite nothing", () => {
     }
     // Runs read back exactly as stored (the real store may already contain runs from local use).
     const storedRuns = Object.keys(original.businesses).map(id => ((original.runs ?? {})[id] ?? []).length).reduce((a: number, b: number) => a + b, 0);
-    expect(await runRead(tx => Object.keys(original.businesses).map(id => tx.runs(id).length).reduce((a, b) => a + b, 0))).toBe(storedRuns);
+    let readRuns = 0;
+    for (const id of Object.keys(original.businesses)) readRuns += await runRead(id, tx => tx.runs(id).length);
+    expect(readRuns).toBe(storedRuns);
     expect(sha(file)).toBe(before);
   });
 });
@@ -76,28 +80,28 @@ describe("run repository · compare-and-set, field ownership, append-only", () =
   test("status changes apply only if the stored state matches; control and kill switch are checked on the latest state", async () => {
     const { store } = tempStore();
     const { businessId } = await readyRestaurant(store);
-    const run = await runTransact(tx => tx.insertRun(baseRun(businessId)));
-    expect(await runTransact(tx => tx.patchRun(businessId, run.id, { status: "paused" }, { status: ["waiting_approval"] }))).toBe(false);
+    const run = await runTransact(businessId, tx => tx.insertRun(baseRun(businessId)));
+    expect(await runTransact(businessId, tx => tx.patchRun(businessId, run.id, { status: "paused" }, { status: ["waiting_approval"] }))).toBe(false);
     // A pause request written by its endpoint makes the runner's expectation (control: null) fail.
-    await runTransact(tx => tx.setRunControl(businessId, run.id, "pause"));
-    expect(await runTransact(tx => tx.patchRun(businessId, run.id, { cursor: "next" }, { status: ["running"], control: null }))).toBe(false);
+    await runTransact(businessId, tx => tx.setRunControl(businessId, run.id, "pause"));
+    expect(await runTransact(businessId, tx => tx.patchRun(businessId, run.id, { cursor: "next" }, { status: ["running"], control: null }))).toBe(false);
     // The kill switch, written by its owner method, makes a kill-switch-guarded write fail.
-    await runTransact(tx => tx.clearRunControl(businessId, run.id, "pause"));
-    await runTransact(tx => tx.setKillSwitch(businessId, true));
-    expect(await runTransact(tx => tx.patchRun(businessId, run.id, { cursor: "next" }, { status: ["running"], control: null, killSwitchOff: true }))).toBe(false);
-    expect(await runRead(tx => tx.run(businessId, run.id)!.cursor)).toBe("trigger");
+    await runTransact(businessId, tx => tx.clearRunControl(businessId, run.id, "pause"));
+    await runTransact(businessId, tx => tx.setKillSwitch(businessId, true));
+    expect(await runTransact(businessId, tx => tx.patchRun(businessId, run.id, { cursor: "next" }, { status: ["running"], control: null, killSwitchOff: true }))).toBe(false);
+    expect(await runRead(businessId, tx => tx.run(businessId, run.id)!.cursor)).toBe("trigger");
   });
   test("interleaved writes never overwrite each other (every write patches the latest stored record)", async () => {
     const { store } = tempStore();
     const { businessId } = await readyRestaurant(store);
-    const run = await runTransact(tx => tx.insertRun(baseRun(businessId)));
+    const run = await runTransact(businessId, tx => tx.insertRun(baseRun(businessId)));
     await Promise.all([
-      runTransact(tx => tx.patchRun(businessId, run.id, { cursor: "a" })),
-      runTransact(tx => tx.setRunControl(businessId, run.id, "stop")),
-      runTransact(tx => tx.setKillSwitch(businessId, true)),
-      runTransact(tx => tx.patchRun(businessId, run.id, { steps_done: 3 })),
+      runTransact(businessId, tx => tx.patchRun(businessId, run.id, { cursor: "a" })),
+      runTransact(businessId, tx => tx.setRunControl(businessId, run.id, "stop")),
+      runTransact(businessId, tx => tx.setKillSwitch(businessId, true)),
+      runTransact(businessId, tx => tx.patchRun(businessId, run.id, { steps_done: 3 })),
     ]);
-    const after = await runRead(tx => ({ run: tx.run(businessId, run.id)!, kill: tx.business(businessId)!.kill_switch }));
+    const after = await runRead(businessId, tx => ({ run: tx.run(businessId, run.id)!, kill: tx.business(businessId)!.kill_switch }));
     expect([after.run.cursor, after.run.control, after.run.steps_done, after.kill]).toEqual(["a", "stop", 3, true]);
   });
   test("decisions, ledger and activity events are append-only: no method updates or deletes them", () => {
@@ -108,8 +112,8 @@ describe("run repository · compare-and-set, field ownership, append-only", () =
   test("reads are copies: changing what a read returns changes nothing stored", async () => {
     const { store } = tempStore();
     const { businessId } = await readyRestaurant(store);
-    await runTransact(tx => { const b = tx.business(businessId)!; b.kill_switch = true; });
-    expect(await runRead(tx => tx.business(businessId)!.kill_switch)).toBeUndefined();
+    await runTransact(businessId, tx => { const b = tx.business(businessId)!; b.kill_switch = true; });
+    expect(await runRead(businessId, tx => tx.business(businessId)!.kill_switch)).toBeUndefined();
   });
 });
 
@@ -145,7 +149,7 @@ describe("D18 · approval fingerprints", () => {
   test("approving another version while a run is active is refused", async () => {
     const { store } = tempStore();
     const { businessId, workflow } = await readyRestaurant(store);
-    await runTransact(tx => tx.insertRun({ business_id: businessId, workflow_id: workflow.id, workflow_version: 1, approval_fingerprint: workflow.approval_fingerprint!, mode: "test_run", scenario: "standard", status: "waiting_approval",
+    await runTransact(businessId, tx => tx.insertRun({ business_id: businessId, workflow_id: workflow.id, workflow_version: 1, approval_fingerprint: workflow.approval_fingerprint!, mode: "test_run", scenario: "standard", status: "waiting_approval",
       trigger: { source: "demo_order", requested_by: "owner" }, idempotency_key: "k", demo_snapshot: {}, records: {}, cursor: "owner_approval", steps_done: 0, exec_ms: 0, lease_expires_at: null,
       control: null, control_at: null, pause_reason: null, started_at: new Date().toISOString(), ended_at: null, elapsed_ms: null, summary: null, expected: { decision: null, end: "completed" }, end_reason: null, error: null }));
     const draft = await store.createWorkflow({ business_id: businessId, name: workflow.name, version: 2, steps: workflow.steps, validation: workflow.validation, status: "draft", approved_at: null });
@@ -154,7 +158,7 @@ describe("D18 · approval fingerprints", () => {
 });
 
 describe("§4 · who can run (server-side start checks)", () => {
-  const check = async (store: FileDevStore, businessId: string, workflowId: string) => runRead(tx => checkRunEligibility({
+  const check = async (store: DiscoveryRepository, businessId: string, workflowId: string) => runRead(businessId, tx => checkRunEligibility({
     business: tx.business(businessId)!, agents: tx.agents(businessId), workflows: tx.workflows(businessId), runs: tx.runs(businessId), workflowId,
   }));
   test("a ready restaurant with a fingerprinted approved workflow is eligible", async () => {
@@ -174,9 +178,9 @@ describe("§4 · who can run (server-side start checks)", () => {
   test("KILL_SWITCH_ACTIVE, WORKFLOW_NOT_APPROVED, APPROVAL_FINGERPRINT_MISMATCH, WORKFLOW_INVALID, RUN_IN_PROGRESS, TEAM_NOT_APPROVED", async () => {
     const { store } = tempStore();
     const { businessId, workflow } = await readyRestaurant(store);
-    await runTransact(tx => tx.setKillSwitch(businessId, true));
+    await runTransact(businessId, tx => tx.setKillSwitch(businessId, true));
     expect(await check(store, businessId, workflow.id)).toMatchObject({ code: "KILL_SWITCH_ACTIVE" });
-    await runTransact(tx => tx.setKillSwitch(businessId, false));
+    await runTransact(businessId, tx => tx.setKillSwitch(businessId, false));
     expect(await check(store, businessId, "not-a-workflow")).toMatchObject({ code: "WORKFLOW_NOT_APPROVED" });
     // Tampering with the stored approved document breaks the fingerprint.
     await store.updateWorkflow(businessId, workflow.id, { steps: { ...workflow.steps, params: { ...workflow.steps.params, max_payment_ngn: 9_999_999 } } });
@@ -190,7 +194,7 @@ describe("§4 · who can run (server-side start checks)", () => {
     await store.updateAgent(businessId, "finance", { status: "paused" });
     expect(await check(store, businessId, workflow.id)).toMatchObject({ ok: true });
     await store.updateAgent(businessId, "finance", { status: "approved" });
-    await runTransact(tx => tx.insertRun({ business_id: businessId, workflow_id: workflow.id, workflow_version: 1, approval_fingerprint: workflow.approval_fingerprint!, mode: "test_run", scenario: "standard", status: "interrupted",
+    await runTransact(businessId, tx => tx.insertRun({ business_id: businessId, workflow_id: workflow.id, workflow_version: 1, approval_fingerprint: workflow.approval_fingerprint!, mode: "test_run", scenario: "standard", status: "interrupted",
       trigger: { source: "demo_order", requested_by: "owner" }, idempotency_key: "k", demo_snapshot: {}, records: {}, cursor: "x", steps_done: 0, exec_ms: 0, lease_expires_at: null,
       control: null, control_at: null, pause_reason: null, started_at: new Date().toISOString(), ended_at: null, elapsed_ms: null, summary: null, expected: { decision: null, end: "completed" }, end_reason: null, error: null }));
     expect(await check(store, businessId, workflow.id)).toMatchObject({ code: "RUN_IN_PROGRESS" });

@@ -723,3 +723,52 @@ details.faq[open] .faq-body { animation: eai-fade-up 280ms var(--ease-out-soft) 
   .card-interactive:hover, .btn:active:not(:disabled) { transform: none; }
   .eai-icon > svg { transition: none; }
 }
+
+/* ---- Platform screens (workforce, content, activity): plain CSS so they never depend on the dev cache ---- */
+.field { width: 100%; border-radius: 0.75rem; border: 1px solid var(--color-line); background: var(--color-surface); color: var(--color-ink); padding: 0.625rem 0.75rem; font: inherit; font-size: 0.875rem; line-height: 1.4; }
+.field:focus { outline: 2px solid var(--color-accent); outline-offset: 1px; border-color: transparent; }
+textarea.field { min-height: 5.5rem; resize: vertical; }
+.field-label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-muted); margin-bottom: 0.25rem; }
+.pill { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 999px; padding: 0.125rem 0.5rem; font-size: 0.6875rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--color-line); color: var(--color-muted); background: var(--color-surface-2); }
+.pill-ok { color: var(--color-success); border-color: color-mix(in oklab, var(--color-success) 45%, transparent); background: color-mix(in oklab, var(--color-success) 10%, transparent); }
+.pill-accent { color: var(--color-accent); border-color: var(--color-accent-line); background: var(--color-accent-soft); }
+.pill-warn { color: var(--color-danger); border-color: color-mix(in oklab, var(--color-danger) 45%, transparent); background: color-mix(in oklab, var(--color-danger) 10%, transparent); }
+.stack-sm > * + * { margin-top: 0.5rem; }
+.grid-2 { display: grid; gap: 2rem; }
+@media (min-width: 768px) { .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.thumb { width: 4.5rem; height: 4.5rem; object-fit: cover; border-radius: 0.75rem; border: 1px solid var(--color-line); background: var(--color-surface-2); flex: none; }
+.notice { border-radius: 0.75rem; background: var(--color-surface-2); padding: 0.625rem 0.75rem; font-size: 0.8125rem; color: var(--color-ink); }
+.row-between { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+
+/* Connections list (Integrations): one row per provider, icon + name on the left, a pill action on the right. */
+.conn-card { border: 1px solid var(--color-line); border-radius: 1.25rem; background: var(--color-surface); padding: 1.25rem 1.5rem; }
+.conn-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; }
+.conn-item + .conn-item { border-top: 1px solid var(--color-line); }
+.conn-name { display: flex; align-items: center; gap: 0.75rem; min-width: 0; font-size: 0.9375rem; font-weight: 500; color: var(--color-ink); }
+.conn-sub { display: block; font-size: 0.75rem; font-weight: 500; color: var(--color-muted); }
+.conn-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 0.3125rem 0.75rem; font-size: 0.8125rem; font-weight: 700; white-space: nowrap; border: 0; cursor: pointer; color: var(--color-ink); background: var(--color-surface-2); transition: filter 120ms ease; }
+.conn-pill:hover:not(:disabled) { filter: brightness(0.96); }
+.conn-pill:disabled { cursor: default; opacity: 0.7; }
+.conn-pill-go { color: var(--color-success); background: color-mix(in oklab, var(--color-success) 16%, transparent); }
+.conn-pill-on { color: var(--color-success); background: color-mix(in oklab, var(--color-success) 16%, transparent); }
+.conn-pill-warn { color: var(--color-danger); background: color-mix(in oklab, var(--color-danger) 14%, transparent); }
+.conn-pill-soon { color: var(--color-muted); }
+.conn-detail { padding: 0 0 1rem 2.25rem; }
+
+/* Provider logos in their own brand colours (solid marks, like the real logos). */
+.brand-logo > .eai-icon-fill { opacity: 1; }
+.brand-logo > .eai-icon-regular { opacity: 0; }
+.brand-instagram svg { fill: url(#eai-brand-instagram); }
+.brand-google svg { fill: url(#eai-brand-google); }
+.brand-facebook { color: #0866ff; }
+.brand-linkedin { color: #0a66c2; }
+.brand-youtube { color: #ff0000; }
+.brand-x { color: var(--color-ink); }
+.brand-tiktok { color: var(--color-ink); filter: drop-shadow(-1.2px -1.2px 0 #25f4ee) drop-shadow(1.2px 1.2px 0 #fe2c55); }
+.brand-outlook { color: #0078d4; }
+.brand-whatsapp { color: #25d366; }
+.brand-telegram { color: #26a5e4; }
+.brand-calendar { color: #4285f4; }
+.brand-drive { color: #1fa463; }
+.brand-generic { color: var(--color-accent); }
+.brand-messenger { color: #0084ff; }

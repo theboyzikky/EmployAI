@@ -71,7 +71,12 @@ describe("chain layer static guards", () => {
       const imports = read(f).match(/@\/lib\/chain\/[\w-]+/g) ?? [];
       expect([f, imports.every(i => i === "@/lib/chain/live")]).toEqual([f, true]);
     }
-    expect(matching(walk("src/app/api"), /@\/lib\/chain\/live/).length).toBe(4);   // start, advance, approval decision, payment retry
+    // start, advance, approval decision, payment retry, and the background worker (P0: runs continue
+    // without the browser; it drives the same runner, approvals and fenced signer — no new signing path)
+    expect(matching(walk("src/app/api"), /@\/lib\/chain\/live/).sort()).toEqual([
+      "src/app/api/w/[id]/approvals/[approvalId]/route.ts", "src/app/api/w/[id]/runs/[runId]/advance/route.ts",
+      "src/app/api/w/[id]/runs/[runId]/payment/retry/route.ts", "src/app/api/w/[id]/runs/route.ts", "src/app/api/worker/route.ts",
+    ].map(p => p.split("/").join(path.sep)).sort());
   });
 
   it("the runner reaches the chain only through the injected PaymentChain port", () => {

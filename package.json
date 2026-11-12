@@ -10,7 +10,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "demo:attack": "vitest run tests/attack-demo.test.ts --reporter=verbose"
+    "demo:attack": "vitest run tests/attack-demo.test.ts --reporter=verbose",
+    "test:shared": "vitest run --config vitest.shared.config.mts"
   },
   "dependencies": {
     "@phosphor-icons/react": "2.1.10",

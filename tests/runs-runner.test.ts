@@ -8,6 +8,7 @@ import { setDiscoveryRepository, type FileDevStore } from "@/lib/discovery/store
 import { runRead, runTransact } from "@/lib/runs/repo";
 import { advanceRun, decideApproval, requestControl, resumeRun, setAgentPaused, setKillSwitch, startRun, MAX_BATCH_STEPS } from "@/lib/runs/runner";
 import type { ScenarioKey } from "@/lib/runs/types";
+import { storeDigest } from "./helpers/store";
 import { readyRestaurant, tempStore } from "./helpers/run-fixture";
 
 afterEach(() => { setDiscoveryRepository(null); vi.useRealTimers(); });
@@ -23,7 +24,7 @@ async function toEnd(b: string, runId: string) {
   for (let i = 0; i < 20; i++) { const r = await advanceRun(b, runId); if (!r.more) return r; }
   throw new Error("did not settle");
 }
-const state = (b: string, runId: string) => runRead(tx => ({ run: tx.run(b, runId)!, steps: tx.steps(runId), decisions: tx.decisions(b), approvals: tx.approvals(b), ledger: tx.ledger(b), events: tx.events(b) }));
+const state = (b: string, runId: string) => runRead(b, tx => ({ run: tx.run(b, runId)!, steps: tx.steps(runId), decisions: tx.decisions(b), approvals: tx.approvals(b), ledger: tx.ledger(b), events: tx.events(b) }));
 
 describe("start and advance", () => {
   test("start persists the run and executes nothing; advance runs a bounded batch", async () => {
@@ -45,7 +46,7 @@ describe("start and advance", () => {
     const a = await start(businessId, workflow.id, "standard", "same");
     const b = await start(businessId, workflow.id, "standard", "same");
     expect(b).toEqual({ runId: a.runId, created: false });
-    expect(await runRead(tx => tx.runs(businessId).length)).toBe(1);
+    expect(await runRead(businessId, tx => tx.runs(businessId).length)).toBe(1);
   });
   test("a second start while a run is active is refused (RUN_IN_PROGRESS)", async () => {
     const { businessId, workflow } = await setup();
@@ -113,7 +114,7 @@ describe("D6 · the five scenarios: expected = actual", () => {
       expect(s.run.status).toBe("completed");
     }
     // The simulated payout never turned Mainland Grains into a "paid before" supplier.
-    expect((await runRead(tx => tx.decisions(businessId))).map(d => d.reason_codes)).toEqual([["FIRST_INTERACTION"], ["FIRST_INTERACTION"]]);
+    expect((await runRead(businessId, tx => tx.decisions(businessId))).map(d => d.reason_codes)).toEqual([["FIRST_INTERACTION"], ["FIRST_INTERACTION"]]);
   });
   test("Price spike → ₦263,500 over the ₦250,000 maximum → BLOCK OVER_TX_LIMIT; nothing requested or paid", async () => {
     const { businessId, workflow } = await setup();
@@ -296,11 +297,11 @@ describe("recovery: interruption, reconciliation, workflow changes, agent pause"
       const r = (await state(b, runId)).run;
       if (r.cursor === stepId || r.status !== "running") return;
       // Pause right after the next commit by injecting a pause request, then resume: a precise single step.
-      await advanceRun(b, runId, { beforeCommit: async () => { await runTransact(tx => tx.setRunControl(b, runId, "pause")); } });
+      await advanceRun(b, runId, { beforeCommit: async () => { await runTransact(b, tx => tx.setRunControl(b, runId, "pause")); } });
       await resumeRun(b, runId);
     }
   }
-  const crashAt = (b: string, runId: string, stepId: string, leaseMsFromNow: number) => runTransact(tx => {
+  const crashAt = (b: string, runId: string, stepId: string, leaseMsFromNow: number) => runTransact(b, tx => {
     tx.insertStep({ run_id: runId, business_id: b, step_id: stepId, step_type: "x", agent_key: "system", requester: "runner", task_id: null, status: "running", attempt: 1,
       input: null, output: null, reasoning: null, tools_used: [], reads: [], writes: [], simulated: [], started_at: tx.now, ended_at: null, duration_ms: null, error: null });
     tx.patchRun(b, runId, { lease_expires_at: new Date(Date.now() + leaseMsFromNow).toISOString() });
@@ -311,7 +312,7 @@ describe("recovery: interruption, reconciliation, workflow changes, agent pause"
     await crashAt(businessId, runId, "trigger", 60_000);
     expect(await advanceRun(businessId, runId)).toMatchObject({ advanced: 0, more: false, settling: true });
     await expect(resumeRun(businessId, runId)).rejects.toMatchObject({ code: "STEP_SETTLING" });
-    await runTransact(tx => tx.patchRun(businessId, runId, { lease_expires_at: new Date(Date.now() - 1).toISOString() }));
+    await runTransact(businessId, tx => tx.patchRun(businessId, runId, { lease_expires_at: new Date(Date.now() - 1).toISOString() }));
     await advanceRun(businessId, runId);
     expect((await state(businessId, runId)).run.status).toBe("interrupted");
     await resumeRun(businessId, runId);
@@ -338,7 +339,7 @@ describe("recovery: interruption, reconciliation, workflow changes, agent pause"
     const { businessId, workflow } = await setup();
     const { runId } = await start(businessId, workflow.id, "standard");
     await stepUntil(businessId, runId, "payment");
-    await runTransact(tx => tx.appendLedger({ business_id: businessId, run_id: runId, type: "supplier_payout", mode: "test_run", amount: 42_780, unit: "ngn_illustrative", counterparty: "Lagos Fresh Foods (demo)", agent_key: "finance", tx_hash: null, tx_status: "simulated", request_id: `${runId}:payment`, label: "Test run — no transaction" }));
+    await runTransact(businessId, tx => tx.appendLedger({ business_id: businessId, run_id: runId, type: "supplier_payout", mode: "test_run", amount: 42_780, unit: "ngn_illustrative", counterparty: "Lagos Fresh Foods (demo)", agent_key: "finance", tx_hash: null, tx_status: "simulated", request_id: `${runId}:payment`, label: "Test run — no transaction" }));
     await toEnd(businessId, runId);
     const s = await state(businessId, runId);
     expect(s.ledger).toHaveLength(1);
@@ -402,9 +403,9 @@ describe("C1–C4 · no side effects outside the run (static checks)", () => {
     const { businessId, workflow, file } = await setup();
     const { runId } = await start(businessId, workflow.id, "large_catering");
     await toEnd(businessId, runId);
-    const before = createHash("sha256").update(readFileSync(file)).digest("hex");
+    const before = storeDigest(file);
     await state(businessId, runId);
-    expect(createHash("sha256").update(readFileSync(file)).digest("hex")).toBe(before);
+    expect(storeDigest(file)).toBe(before);
   });
 });
 

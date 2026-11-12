@@ -23,7 +23,8 @@ import { POST as confirm } from "@/app/api/w/[id]/discovery/confirm/route";
 import { POST as propose } from "@/app/api/w/[id]/team/propose/route";
 import { POST as approve } from "@/app/api/w/[id]/team/approve/route";
 import { PATCH as patchAgent } from "@/app/api/w/[id]/team/[agentKey]/route";
-import { FileDevStore, setDiscoveryRepository } from "@/lib/discovery/store";
+import { setDiscoveryRepository } from "@/lib/discovery/store";
+import { makeTestStore } from "./helpers/store";
 import { resetAiForTests } from "@/lib/ai";
 import { AGENT_TEMPLATES } from "@/lib/catalogue/catalogue";
 import { blockedFetch } from "./setup";
@@ -40,7 +41,7 @@ const body = async (r: Response) => (await r.json()) as { view: DiscoveryView; e
 
 let logs: string[] = [];
 beforeEach(() => {
-  setDiscoveryRepository(new FileDevStore(dir));
+  setDiscoveryRepository(makeTestStore(dir));
   process.env.AI_PROVIDER = "mock";
   resetAiForTests();
   h.jar.clear();
@@ -164,7 +165,7 @@ describe("the discovery journey (offline consultant)", () => {
     const id = await newSession("I run a small restaurant called Bukka Hut. We sell amala at the counter.");
     await say(id);
     await say(id, "Amala, ewedu and goat meat.");
-    setDiscoveryRepository(new FileDevStore(dir));
+    setDiscoveryRepository(makeTestStore(dir));
     const v = (await body(await getDiscovery(req("GET"), ctx(id)))).view;
     expect(v.messages.filter(m => m.role === "user").map(m => m.content)).toEqual(["I run a small restaurant called Bukka Hut. We sell amala at the counter.", "Amala, ewedu and goat meat."]);
     // "We sell amala" already answered products. M3.5: the menu, given in reply to the goals question, is not

@@ -21,13 +21,14 @@ vi.mock("@/lib/ai", () => ({
 
 import { discoveryReadiness } from "@/lib/discovery/casefile";
 import { consultantTurn } from "@/lib/discovery/service";
-import { FileDevStore, setDiscoveryRepository } from "@/lib/discovery/store";
+import { setDiscoveryRepository } from "@/lib/discovery/store";
+import { makeTestStore } from "./helpers/store";
 
 afterEach(() => { setDiscoveryRepository(null); queue.length = 0; });
 
 describe("live consultant: wrap-up", () => {
   test("a no-question turn closes uninvestigated problems honestly, completes discovery and points to Analyse", async () => {
-    const store = new FileDevStore(mkdtempSync(path.join(tmpdir(), "employai-live-")));
+    const store = makeTestStore(mkdtempSync(path.join(tmpdir(), "employai-live-")));
     setDiscoveryRepository(store);
     const b = await store.createBusiness({ ownerHash: "h", initialMessage: "I run a restaurant and I want to automate replying to online customers." });
     const first = (await store.listMessages(b.id))[0].id;
@@ -65,7 +66,7 @@ describe("live consultant: wrap-up", () => {
   });
 
   test("a turn that still asks a question leaves open problems alone", async () => {
-    const store = new FileDevStore(mkdtempSync(path.join(tmpdir(), "employai-live-")));
+    const store = makeTestStore(mkdtempSync(path.join(tmpdir(), "employai-live-")));
     setDiscoveryRepository(store);
     const b = await store.createBusiness({ ownerHash: "h", initialMessage: "I run a restaurant." });
     const first = (await store.listMessages(b.id))[0].id;

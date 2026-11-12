@@ -29,6 +29,8 @@ Owners know what they want automated but not how to design triggers, workflows a
 | Ledger | Verified on-chain payouts, failed payouts and simulated test-run rows are labelled separately; payments in progress are never counted as paid. |
 | Shared blocklist | Reports need evidence; the server stores its SHA-256. Confirmed → BLOCK, reported → WARN only. |
 | Attack demo | `npm run demo:attack`: a prompt-injected, fully compromised agent tries to pay a known-bad account and is blocked: no approval, no signature, no transaction. |
+| AI workforce (any business) | **Workforce** tab: describe what the business needs; NEAR AI composes employees from a skill library, each skill labelled Operational, Demo data or Planned; code sets autonomy; the owner approves and can pause any employee. See [platform-workforce.md](docs/architecture/platform-workforce.md). |
+| Content and Instagram | **Content** tab: real products with the owner's photo and exact price → AI calendar → AI captions with eight visible checks → owner approval → published by the background worker at the chosen time. **Activity** tab: everything recorded. |
 
 ## Real vs simulated
 
@@ -40,7 +42,8 @@ Owners know what they want automated but not how to design triggers, workflows a
 | Customer messages, supplier quotes, owner notifications | **Simulated** and labelled ("not sent", "no supplier contacted"). |
 | Customer payments and revenue split (`pay_order`) | **Not enabled.** The contract method exists but is switched off; see Limitations. |
 | AI consultant | Offline rule-based mode (`AI_PROVIDER=mock`, no keys) or NEAR AI Cloud (`AI_PROVIDER=nearai`). The screen always shows which. Agents in runs are rule-based in both modes. |
-| Storage | Local development store (`.data/dev-store.json`, git-ignored, single process). Not production persistence. |
+| Instagram publishing | **Built; not yet externally verified.** Tested against a simulated Instagram API. The first real post needs the owner's Instagram token, and unattended scheduling must be proven on the deployed worker (steps in [platform-workforce.md](docs/architecture/platform-workforce.md)). Facebook, TikTok, LinkedIn, X and messaging channels are **planned** and shown as Planned. |
+| Storage | **Locally:** a development store (`.data/dev-store.json`, git-ignored, single process). **Hosted demo:** a shared Upstash Redis store: one versioned document per workspace, atomic compare-and-set commits across server instances, workspaces expire 60 days after their last change. See [the hosted demo guide](docs/deployment/vercel-upstash.md). |
 
 ## Try it (do X, see Y)
 
@@ -55,7 +58,7 @@ Requirements: Node.js ≥ 20.9 (built with 26.13.0) and npm. No NEAR keys or AI 
 7. **Do:** switch on the **kill switch** in the header while a run waits. **See:** the run is cancelled and the approval invalidated.
 8. **Do:** open **Ledger** and **Security**. **See:** the ledger keeps real and simulated rows apart; the Security tab shows the shared blocklist (with the labelled `scam-supplier` fixture and its evidence hash) and a report form. On the Ledger tab, **Publish** creates a public link (`/ledger/<random>`). It's private by default and shows only verified on-chain payouts: no business amounts, simulated runs or business details. **Make private** turns the link off for good.
 9. **Do:** `npm run demo:attack`. **See:** the log below: the injected instruction, **BLOCK** with three reasons, no approval, 0 signatures, 0 transactions, no transaction hash.
-10. **Do:** `npm test`. **See:** 529 tests pass. All network access is blocked in tests; the NEAR chain is faked, so no keys are used.
+10. **Do:** `npm test`. **See:** 577 tests pass. `npm run test:shared` runs the same suites against the hosted demo's shared store (576 pass; 1 check that reads the local file is skipped), including concurrency tests across simulated server instances. All network access is blocked in tests; the NEAR chain is faked, so no keys are used.
 11. **Do:** open the verified payout on [NEAR Rocks](https://testnet.near.rocks/tx/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP). **See:** signer `finance-agent.employai-demo.testnet`, `request_payment`, the 0.031 NEAR transfer to supplier-1, `on_payout` returning `true`, and the `payout_completed` event.
 12. **Optional, real testnet payment** (needs your own accounts, contract and restricted key; see [scripts/m5/README.md](scripts/m5/README.md)): set the NEAR variables in `.env` (names only in `.env.example`), arm a batch on the Runs page, pick **NEAR testnet (real transaction)**, run, then approve. **See:** "Paid · verified on NEAR testnet" with the hash, and a verified ledger row.
 
@@ -130,7 +133,9 @@ It's re-checked at the click, when it's used, and just before signing, with the 
 - the `payout_completed` event matches the request, recipient, amount and agent;
 - the record says `Paid`.
 
-**Single server.** The store, locks and signer guards are per process; a lock file lets only one server process sign.
+**Locally: one server.** The store, locks and signer guards are per process; a lock file lets only one server process sign.
+
+**Hosted: many server instances, one signer.** The store, the business lock, the signer and the AI spending ledger live in Upstash Redis. Every write is an atomic compare-and-set; locks are leases with unique tokens, renewal and fencing, so a server that stalled or lost its lease can't write again. One signer lease per key covers nonce → signature → write-ahead → broadcast, and the write-ahead raises a shared nonce floor in the same atomic step. A stalled signer can't persist (and so never broadcasts) its signature. If Redis can't be reached, AI and payments fail closed. Details and the proofs: [docs/deployment/vercel-upstash.md](docs/deployment/vercel-upstash.md).
 
 ## Architecture
 
@@ -141,7 +146,8 @@ Testnet accounts (owner-created): `employai-demo.testnet` (owner), `treasury.emp
 ## Limitations (honest)
 
 - **Customer payments and the revenue split aren't enabled.** `pay_order` exists in the contract but is switched off: it has no on-chain order-ID replay protection yet, and a customer payment needs a deposit, which a restricted key can't attach. Enabling it safely needs a contract update and a decision on who holds the customer's key. The `business` track evidence is therefore supplier payouts, the treasury and its policy, not sales.
-- No hosted demo; it runs locally. Storage is a single-process development store. No platform reviewer role yet, so only the labelled demo fixture is a confirmed blocklist entry.
+- **Hosted demo (Vercel + Upstash free tiers):** no uptime guarantee. The 0.25 NEAR daily on-chain cap is shared by every visitor (about 8 payouts of 0.031 NEAR a day). Without sign-in, a determined abuser could use up a day's shared AI or testnet allowance (costs stay capped). Sessions are browser cookies with no recovery. What judges type is stored for 60 days and sent to NEAR AI, and the UI says so. Full list: [hosted demo guide](docs/deployment/vercel-upstash.md#limitations-that-remain).
+- No platform reviewer role yet, so only the labelled demo fixture is a confirmed blocklist entry.
 - NEAR Intents and chain signatures aren't used. NearBlocks shows a bot check to automated browsers; the app links to NEAR Rocks first.
 - On some Windows machines `cargo test` fails while compiling a native dependency (`aws-lc-sys`); that's a local toolchain issue, not the contract.
 
@@ -156,6 +162,7 @@ Testnet accounts (owner-created): `employai-demo.testnet` (owner), `treasury.emp
 
 - Secrets live in `.env` (git-ignored); `.env.example` has names only. No private key is in the repository, and the server never holds an owner or full-access key.
 - Real transactions are signed only after the owner approves each one in the app.
+- Hosted demo: keys are Vercel environment variables (server-only, never `NEXT_PUBLIC_`). IPs are stored only as salted hashes for rate limits. Operators can pause real payments (`eai:ops:testnet_paused`) or live AI (`eai:ops:ai_paused`) from the Upstash console without redeploying.
 
 ## License
 

@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>EmployAI · demo film</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<!--
+  EmployAI demo film (motion graphics, ~96 s, 1920x1080, generated soundtrack + sound effects).
+  Record it full-screen with system audio; see docs/submission/video-edit-plan.md.
+  Keys: Space play/pause · R restart · 1-7 jump to a scene · M sound · H hide/show the hint bar · F fullscreen.
+  Every fact shown is real (verified on NEAR testnet).
+-->
+<style>
+  :root {
+    --bg: #000; --ink: #f6f6f6; --muted: #8d8d8d; --line: #2f2f2f; --surface: #111; --surface2: #1b1b1b;
+    --v100: #ede9f1; --v300: #c6bbd5; --vsec: #482477; --v700: #361b59; --v900: #201036; --v1000: #190d2a;
+    --ok: #5cc48d; --bad: #f2837a; --ease: cubic-bezier(0.22, 1, 0.36, 1); --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; overflow: hidden; }
+  body { font-family: Manrope, system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; cursor: none; }
+  body.hints { cursor: default; }
+  #viewport { position: fixed; inset: 0; overflow: hidden; }
+  #viewport.shake { animation: shake 520ms cubic-bezier(.36,.07,.19,.97); }
+  #viewport.nudge { animation: nudge 260ms ease-out; }
+  #stage { width: 1920px; height: 1080px; position: absolute; left: 50%; top: 50%; overflow: hidden; transform-origin: center; transform: translate(-50%, -50%); background: #000; }
+  #bg, #fxc { position: absolute; inset: 0; width: 1920px; height: 1080px; pointer-events: none; }
+  #bg { z-index: 0; }
+  #fxc { z-index: 4; }
+  #stage::before { /* drifting dot grid */
+    content: ""; position: absolute; inset: 0; opacity: .3; z-index: 0;
+    background-image: radial-gradient(rgba(198,187,213,.2) 1px, transparent 1px); background-size: 36px 36px;
+    mask-image: radial-gradient(1100px 700px at 50% 45%, #000 25%, transparent 80%);
+    animation: grid 40s linear infinite;
+  }
+  .vignette { position: absolute; inset: 0; z-index: 3; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.65)); }
+  .grain { position: absolute; inset: -60px; z-index: 5; pointer-events: none; opacity: .05; animation: grain .9s steps(5) infinite;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+  .sweep { position: absolute; inset: 0 -40%; z-index: 3; pointer-events: none; opacity: 0;
+    background: linear-gradient(100deg, transparent 38%, rgba(198,187,213,.0) 43%, rgba(198,187,213,.2) 49%, rgba(255,255,255,.28) 50%, rgba(198,187,213,.2) 51%, rgba(198,187,213,0) 57%, transparent 62%); }
+  .sweep.go { animation: sweep 1100ms var(--ease); }
+  .flash { position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(242,131,122,.12), rgba(242,131,122,.45)); }
+  .flash.go { animation: flash 900ms ease-out; }
+
+  /* scenes: the camera flies through. Leaving scenes zoom past the viewer; new ones settle in from behind. */
+  .scene { position: absolute; inset: 0; z-index: 1; padding: 100px 140px 120px; pointer-events: none;
+    opacity: 0; transform: scale(.92); filter: blur(16px);
+    transition: opacity 900ms var(--ease), transform 1200ms var(--ease), filter 900ms var(--ease); }
+  .scene.active { opacity: 1; transform: none; filter: none; }
+  .scene.past { transform: scale(1.14); filter: blur(22px); }
+
+  /* entrance effects: an element gets .on at its data-at time (and loses it at data-out, if set) */
+  .fx { opacity: 0; transition: opacity 700ms var(--ease), transform 900ms var(--ease), filter 700ms var(--ease), clip-path 900ms var(--ease); }
+  .fx.up { transform: translateY(34px); }
+  .fx.pop { transform: scale(.6); transition-timing-function: var(--ease), var(--spring), var(--ease), var(--ease); }
+  .fx.left { transform: translateX(-60px); }
+  .fx.right { transform: translateX(60px); }
+  .fx.blur { filter: blur(14px); }
+  .card.fx.up { transform: perspective(1200px) rotateX(32deg) translateY(70px) scale(.94); }
+  .card.fx.left { transform: perspective(1400px) rotateY(22deg) translateX(-110px); }
+  .card.fx.pop { transform: perspective(1200px) scale(.55) rotate(-4deg); }
+  .fx.on, .card.fx.on { opacity: 1; transform: none; filter: none; clip-path: inset(0 0 0 0); }
+
+  /* kinetic type: headlines are split into words that rise out of a mask, one after another */
+  .split .w { display: inline-block; overflow: hidden; vertical-align: bottom; padding: 0 .03em .14em; margin: 0 -.03em -.14em; }
+  .split .wi { display: inline-block; transform: translateY(110%) rotate(5deg); opacity: 0; filter: blur(8px);
+    transition: transform 1000ms var(--ease) calc(var(--wi) * 60ms), opacity 600ms ease calc(var(--wi) * 60ms), filter 800ms ease calc(var(--wi) * 60ms); }
+  .split.on .wi { transform: none; opacity: 1; filter: none; }
+
+  .eyebrow { display: inline-flex; gap: 10px; align-items: center; padding: 10px 20px; border-radius: 999px; background: var(--v900); color: var(--v300); font-size: 22px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+  .eyebrow.fx { clip-path: inset(0 100% 0 0 round 999px); transform: none; }
+  .eyebrow.fx.on { clip-path: inset(0 0 0 0 round 999px); }
+  .h1 { font-size: 104px; line-height: 1.02; font-weight: 700; letter-spacing: -0.035em; }
+  .h2 { font-size: 72px; line-height: 1.06; font-weight: 700; letter-spacing: -0.03em; }
+  .lead { font-size: 34px; line-height: 1.45; font-weight: 300; color: var(--muted); max-width: 1180px; }
+  .violet { color: var(--v300); }
+  .card { position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 28px; box-shadow: 0 30px 80px -30px rgba(0,0,0,.9); }
+  .card::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+    background: linear-gradient(105deg, transparent 40%, rgba(198,187,213,.22) 50%, transparent 60%); background-size: 300% 100%; }
+  .card.on::after, .on > .card::after { animation: sheen 1500ms var(--ease) 250ms; }
+  .float.on, .on > .float { animation: bob 5.5s ease-in-out infinite; animation-delay: calc(var(--bob, 0) * -1s); }
+  .chip { display: inline-flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 999px; font-size: 22px; font-weight: 600; border: 1px solid var(--line); background: var(--surface2); }
+  .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .center { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; height: 100%; gap: 34px; }
+  .row { display: flex; gap: 28px; align-items: stretch; }
+  svg.i { width: 40px; height: 40px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* logo: the three bars slide in, then light runs across the word */
+  .logo { display: inline-flex; align-items: center; gap: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .logo svg { color: var(--v300); overflow: visible; }
+  .logo svg rect { translate: -60px 0; opacity: 0; transition: translate 900ms var(--ease), opacity 600ms ease; }
+  .on .logo svg rect { translate: 0 0; opacity: 1; }
+  .on .logo svg rect:nth-child(2) { opacity: .8; transition-delay: 90ms; }
+  .on .logo svg rect:nth-child(3) { opacity: .6; transition-delay: 180ms; }
+  .shine { background: linear-gradient(100deg, var(--ink) 42%, #fff 47%, var(--v300) 50%, #fff 53%, var(--ink) 58%); background-size: 300% 100%; background-position: 100% 0;
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .on .shine { animation: shine 2200ms var(--ease) 500ms both; }
+
+  /* S2 risks */
+  .risk { width: 360px; padding: 34px; display: flex; flex-direction: column; gap: 18px; }
+  .risk .ic { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; background: rgba(242,131,122,.12); color: var(--bad); }
+  .risk.on .ic { animation: alarmring 1.4s ease-out 400ms 2; }
+  .risk.on .ic svg { animation: wiggle 600ms ease-in-out 450ms; }
+  .risk b { font-size: 30px; } .risk span { font-size: 22px; color: var(--muted); line-height: 1.45; }
+
+  /* S3 flow */
+  .bubble { font-size: 28px; line-height: 1.4; padding: 22px 28px; border-radius: 26px; max-width: 760px; }
+  .bubble.me { background: var(--vsec); color: var(--v100); border-bottom-right-radius: 8px; margin-left: auto; }
+  .bubble.ai { background: var(--surface2); color: var(--ink); border: 1px solid var(--line); border-bottom-left-radius: 8px; }
+  .typing { position: absolute; left: 0; top: 0; display: flex; gap: 9px; padding: 26px 30px; background: var(--surface2); border: 1px solid var(--line); border-radius: 26px 26px 26px 8px; }
+  .typing i { width: 12px; height: 12px; border-radius: 50%; background: var(--v300); animation: dot 1s ease-in-out infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+  .agent { padding: 26px 26px; width: 250px; display: flex; flex-direction: column; gap: 12px; }
+  .agent .av { width: 58px; height: 58px; border-radius: 18px; display: grid; place-items: center; background: var(--v900); color: var(--v300); font-weight: 700; font-size: 24px; }
+  .agent.on .av { animation: avpop 700ms var(--spring) 200ms both; }
+  .agent.lead .av { background: var(--vsec); color: var(--v100); box-shadow: 0 0 0 0 rgba(198,187,213,.5); }
+  .agent.lead.on .av { animation: avpop 700ms var(--spring) 200ms both, pulse 2.4s ease-out 1s infinite; }
+  .agent b { font-size: 26px; } .agent span { font-size: 19px; color: var(--muted); }
+
+  /* S4 layers */
+  .layers { position: relative; margin-top: 36px; display: flex; flex-direction: column; gap: 14px; max-width: 1640px; }
+  .layer { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 28px; padding: 18px 30px; }
+  .layer .n { width: 60px; height: 60px; border-radius: 18px; display: grid; place-items: center; background: var(--v900); color: var(--v300); font-size: 28px; font-weight: 700; }
+  .layer.on .n { animation: avpop 700ms var(--spring) 250ms both; }
+  .layer b { font-size: 30px; display: block; margin-bottom: 4px; } .layer span { font-size: 22px; color: var(--muted); }
+  .layer .tag { font-size: 20px; font-weight: 600; color: var(--v300); background: var(--v1000); border: 1px solid var(--v700); padding: 8px 16px; border-radius: 999px; white-space: nowrap;
+    transition: color 400ms, background 400ms, border-color 400ms, box-shadow 400ms; transition-delay: calc(var(--k) * 260ms + 150ms); }
+  .scan { position: absolute; left: -30px; right: -30px; top: 0; height: 3px; z-index: 2; opacity: 0; border-radius: 3px;
+    background: linear-gradient(90deg, transparent, var(--v300) 20%, #fff 50%, var(--v300) 80%, transparent); box-shadow: 0 0 28px 8px rgba(198,187,213,.35); }
+  .scan.on { animation: scan 1500ms cubic-bezier(.45,0,.55,1) forwards; }
+  .scan.on ~ .layer .tag { color: var(--ok); background: rgba(92,196,141,.1); border-color: rgba(92,196,141,.45); box-shadow: 0 0 22px -4px rgba(92,196,141,.5); }
+
+  /* S5 pipeline: a light packet travels along each connector and lights the next step */
+  .node { padding: 26px 24px; width: 250px; flex: none; text-align: center; }
+  .node b { font-size: 26px; display: block; margin-bottom: 6px; } .node span { font-size: 19px; line-height: 1.35; color: var(--muted); }
+  .node.on { animation: nodeglow 1300ms ease-out 200ms; }
+  .node.hot { border-color: var(--v300); box-shadow: 0 0 0 6px rgba(198,187,213,.08), 0 30px 80px -30px rgba(72,36,119,.6); }
+  .arrow { position: relative; flex: 1; height: 3px; align-self: center; background: linear-gradient(90deg, var(--v700), var(--v300)); border-radius: 3px; transform-origin: left; transform: scaleX(0); transition: transform 600ms var(--ease); }
+  .arrow.on { transform: scaleX(1); }
+  .arrow::after { content: ""; position: absolute; top: 50%; left: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #fff; opacity: 0;
+    box-shadow: 0 0 12px 4px var(--v300), 0 0 34px 12px rgba(198,187,213,.45); }
+  .arrow.on::after { animation: packet 700ms cubic-bezier(.5,0,.3,1) 380ms; }
+  .paid { position: relative; display: inline-flex; align-items: center; gap: 16px; padding: 18px 28px; border-radius: 999px; background: rgba(92,196,141,.12); color: var(--ok); font-size: 30px; font-weight: 700; border: 1px solid rgba(92,196,141,.35); }
+  .on > .paid { animation: paidpop 800ms var(--spring) both; }
+  .paid::before, .paid::after { content: ""; position: absolute; inset: -2px; border-radius: inherit; border: 2px solid var(--ok); opacity: 0; pointer-events: none; }
+  .on > .paid::before { animation: ring 1300ms ease-out 150ms; }
+  .on > .paid::after { animation: ring 1300ms ease-out 450ms; }
+
+  /* S6 attack */
+  .alarm { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(ellipse 80% 75% at 50% 50%, transparent 50%, rgba(242,131,122,.28)); }
+  .alarm.on { animation: alarm 1.6s ease-in-out 800ms infinite; }
+  .quote { font-size: 30px; line-height: 1.5; padding: 30px 36px; border-left: 6px solid var(--bad); background: rgba(242,131,122,.06); border-radius: 0 20px 20px 0; max-width: 1500px; }
+  .quote.on { animation: glitch 750ms steps(1) both; }
+  .block { display: inline-flex; align-items: center; gap: 18px; font-size: 64px; font-weight: 700; color: var(--bad); transform-origin: left center; }
+  .block.fx { transform: scale(2.8) rotate(-6deg); filter: blur(10px); transition: opacity 180ms, transform 450ms cubic-bezier(.2,1.5,.4,1), filter 300ms; }
+  .block.fx.on { transform: none; filter: drop-shadow(0 0 28px rgba(242,131,122,.55)); }
+  .reason { font-size: 26px; padding: 14px 22px; border-radius: 16px; background: var(--surface2); border: 1px solid var(--line); display: flex; gap: 14px; align-items: center; }
+  .reason.on { animation: redline 1200ms ease-out 200ms; }
+  .reason code { color: var(--bad); font-weight: 700; white-space: nowrap; }
+  .zero { font-size: 92px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+
+  /* S7 outro */
+  .stat { padding: 30px 40px; text-align: left; min-width: 360px; }
+  .stat b { font-size: 64px; font-weight: 700; letter-spacing: -0.03em; display: block; font-variant-numeric: tabular-nums; } .stat span { font-size: 22px; color: var(--muted); }
+
+  /* chrome */
+  #bar { position: fixed; left: 0; bottom: 0; height: 4px; background: var(--v300); width: 0; opacity: 0; }
+  body.hints #bar { opacity: .8; }
+  #hint { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); font: 500 14px Manrope, sans-serif; color: #aaa; background: rgba(20,20,20,.85); border: 1px solid #333; padding: 10px 18px; border-radius: 999px; display: none; z-index: 9; }
+  body.hints #hint { display: block; }
+  .label { position: absolute; left: 140px; bottom: 60px; z-index: 6; font-size: 20px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+  .label i { width: 10px; height: 10px; border-radius: 50%; background: var(--v300); display: inline-block; }
+
+  @keyframes grid { to { background-position: 36px 72px; } }
+  @keyframes grain { 0% { translate: 0 0; } 20% { translate: -30px 20px; } 40% { translate: 20px -30px; } 60% { translate: -10px -10px; } 80% { translate: 30px 10px; } 100% { translate: 0 0; } }
+  @keyframes sweep { 0% { opacity: 1; transform: translateX(-60%); } 100% { opacity: 1; transform: translateX(60%); } }
+  @keyframes flash { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes shake { 10%, 90% { transform: translate(-3px, 1px); } 20%, 80% { transform: translate(6px, -2px); } 30%, 50%, 70% { transform: translate(-12px, 3px); } 40%, 60% { transform: translate(12px, -3px); } }
+  @keyframes nudge { 30% { transform: translateY(5px); } 100% { transform: none; } }
+  @keyframes sheen { 0% { opacity: 1; background-position: 100% 0; } 100% { opacity: 1; background-position: 0 0; } }
+  @keyframes bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -7px; } }
+  @keyframes shine { to { background-position: 0 0; } }
+  @keyframes alarmring { 0% { box-shadow: 0 0 0 0 rgba(242,131,122,.55); } 100% { box-shadow: 0 0 0 22px rgba(242,131,122,0); } }
+  @keyframes wiggle { 20% { rotate: -14deg; } 40% { rotate: 12deg; } 60% { rotate: -8deg; } 80% { rotate: 4deg; } }
+  @keyframes dot { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-9px); opacity: 1; } }
+  @keyframes avpop { 0% { scale: 0; rotate: -20deg; } 100% { scale: 1; rotate: 0deg; } }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(198,187,213,.5); } 100% { box-shadow: 0 0 0 20px rgba(198,187,213,0); } }
+  @keyframes scan { 0% { top: 0; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+  @keyframes nodeglow { 0% { box-shadow: 0 0 0 0 rgba(198,187,213,.55), 0 0 60px 10px rgba(72,36,119,.6); border-color: var(--v300); } 100% { box-shadow: 0 0 0 18px rgba(198,187,213,0), 0 30px 80px -30px rgba(0,0,0,.9); } }
+  @keyframes packet { 0% { left: 0; opacity: 0; } 10% { opacity: 1; } 85% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+  @keyframes paidpop { 0% { scale: .3; opacity: 0; } 100% { scale: 1; opacity: 1; } }
+  @keyframes ring { 0% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.6, 2.4); } }
+  @keyframes alarm { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+  @keyframes redline { 0% { box-shadow: inset 6px 0 0 var(--bad), 0 0 30px -6px rgba(242,131,122,.6); } 100% { box-shadow: inset 0 0 0 transparent, 0 0 0 transparent; } }
+  @keyframes glitch {
+    0% { translate: 14px 0; text-shadow: 4px 0 #ff3b6b, -4px 0 #3bd5ff; clip-path: inset(0 0 60% 0); }
+    12% { translate: -18px 0; clip-path: inset(40% 0 20% 0); }
+    24% { translate: 8px 0; text-shadow: -5px 0 #ff3b6b, 5px 0 #3bd5ff; clip-path: inset(70% 0 0 0); }
+    36% { translate: -6px 0; clip-path: inset(0 0 0 0); }
+    48% { translate: 10px 0; text-shadow: 3px 0 #ff3b6b, -3px 0 #3bd5ff; clip-path: inset(20% 0 50% 0); }
+    60% { translate: 0 0; clip-path: inset(0 0 0 0); text-shadow: 2px 0 #ff3b6b, -2px 0 #3bd5ff; }
+    80% { translate: -3px 0; text-shadow: none; }
+    100% { translate: 0 0; text-shadow: none; clip-path: inset(0 0 0 0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .grain, #stage::before { animation: none; } }
+</style>
+</head>
+<body class="hints">
+<div id="viewport"><div id="stage">
+  <canvas id="bg" width="960" height="540"></canvas>
+
+  <!-- S1 · Hook (9 s) -->
+  <section class="scene" data-dur="9000">
+    <div class="center">
+      <div class="fx up" data-at="300" data-sfx="shimmer"><span class="logo" style="font-size:44px">
+        <svg width="56" height="56" viewBox="0 0 32 32"><rect x="6" y="4" width="21" height="7" rx="3.5" transform="skewX(-14)" fill="currentColor"/><rect x="9" y="12.5" width="18" height="7" rx="3.5" transform="skewX(-14)" fill="currentColor" opacity=".8"/><rect x="12" y="21" width="15" height="7" rx="3.5" transform="skewX(-14)" fill="currentColor" opacity=".6"/></svg>
+        <span class="shine">EmployAI</span></span></div>
+      <h1 class="h1 fx" data-at="1200" data-sfx="swell">Tell EmployAI what your business needs.</h1>
+      <h1 class="h1 fx violet" data-at="3000" data-sfx="swell">It builds the workforce that does it.</h1>
+      <p class="lead fx up blur" data-at="5200">Not a chatbot. An autonomous AI workforce that runs your routine operations.</p>
+    </div>
+  </section>
+
+  <!-- S2 · The owner introduces the business (13 s) -->
+  <section class="scene" data-dur="13000">
+    <span class="eyebrow fx" data-at="200">1 · Describe your business</span>
+    <h2 class="h2 fx" data-at="600" style="margin-top:34px;max-width:1640px">Plain words. <span class="violet">No setup, no prompts, no APIs.</span></h2>
+    <div style="margin-top:56px;display:flex;flex-direction:column;gap:22px;max-width:1300px">
+      <div class="bubble me fx right" data-at="2200">I sell women's dresses. I want customer enquiries and orders handled automatically.</div>
+      <div style="position:relative">
+        <div class="typing fx" data-at="3600" data-out="4700"><i></i><i></i><i></i></div>
+        <div class="bubble ai fx left" data-at="4800">What do customers usually ask, and where do they message you?</div>
+      </div>
+      <div class="bubble me fx right" data-at="6800">Prices, sizes and delivery. Mostly WhatsApp, Telegram and Instagram.</div>
+      <div class="chip fx up" data-at="9000" style="align-self:flex-start;color:var(--v300)">EmployAI understands the outcome, the products and the channels</div>
+    </div>
+  </section>
+
+  <!-- S3 · EmployAI proposes the AI employees (14 s) -->
+  <section class="scene" data-dur="14000">
+    <span class="eyebrow fx" data-at="200">2 · Your AI workforce</span>
+    <h2 class="h2 fx" data-at="500" style="margin-top:28px;font-size:62px">EmployAI proposes the employees <span class="violet">the work needs.</span></h2>
+    <div class="row" style="margin-top:60px;gap:28px;align-items:stretch">
+      <div class="card agent lead float fx pop" data-at="2200" style="width:520px"><div class="av">S</div><b>Customer Support</b><span>Answers enquiries from your products and approved facts</span></div>
+      <div class="card agent float fx pop" data-at="3200" style="width:460px"><div class="av">O</div><b>Orders &amp; Sales</b><span>Captures orders and leads for you to confirm</span></div>
+      <div class="card agent float fx pop" data-at="4200" style="width:460px"><div class="av">C</div><b>Orchestrator</b><span>Hands work between employees</span></div>
+    </div>
+    <div class="row" style="margin-top:48px;gap:18px">
+      <div class="chip fx pop" data-at="6200">Skills, not scripts</div>
+      <div class="chip fx pop" data-at="6600">Restrictions and escalation rules built in</div>
+      <div class="chip fx pop" data-at="8200" data-sfx="ok" style="background:var(--vsec);color:var(--v100);border-color:var(--vsec)">✓ You approve the team · nothing runs before that</div>
+    </div>
+  </section>
+
+  <!-- S4 · Connect accounts (14 s) -->
+  <section class="scene" data-dur="14000">
+    <span class="eyebrow fx" data-at="200">3 · Connect your accounts</span>
+    <h2 class="h2 fx" data-at="500" style="margin-top:28px;font-size:62px">Click Connect. Sign in on the platform. <span class="violet">Come back connected.</span></h2>
+    <div class="row" style="margin-top:56px;gap:22px;flex-wrap:wrap">
+      <div class="card node fx pop" data-at="2000"><b>WhatsApp Business</b><span>Meta sign-up window</span></div>
+      <div class="card node fx pop" data-at="2400"><b>Telegram</b><span>Telegram Business</span></div>
+      <div class="card node fx pop" data-at="2800"><b>Instagram</b><span>Instagram sign-in</span></div>
+      <div class="card node fx pop" data-at="3200"><b>Messenger</b><span>Facebook sign-in</span></div>
+      <div class="card node fx pop" data-at="3600"><b>Gmail</b><span>Google sign-in</span></div>
+      <div class="card node fx pop" data-at="4000"><b>Outlook</b><span>Microsoft sign-in</span></div>
+    </div>
+    <div class="row" style="margin-top:52px;gap:18px">
+      <div class="chip fx pop" data-at="6200" data-sfx="ok">No passwords or API keys in EmployAI</div>
+      <div class="chip fx pop" data-at="6800" style="color:var(--v300)">Each employee gets only the permissions you allow</div>
+    </div>
+  </section>
+
+  <!-- S5 · EmployAI builds the automation (14 s) -->
+  <section class="scene" data-dur="14000">
+    <span class="eyebrow fx" data-at="200">4 · The automation</span>
+    <h2 class="h2 fx" data-at="500" style="margin-top:28px;font-size:62px">EmployAI builds it, <span class="violet">and runs it in the background.</span></h2>
+    <div class="row" style="margin-top:70px;gap:0;align-items:stretch">
+      <div class="card node fx pop" data-at="1600"><b>Message arrives</b><span>any connected channel</span></div>
+      <div class="arrow" data-at="2400"></div>
+      <div class="card node fx pop" data-at="2800"><b>Understands it</b><span>question · order · complaint</span></div>
+      <div class="arrow" data-at="3600"></div>
+      <div class="card node fx pop" data-at="4000"><b>Your catalogue</b><span>only your prices and facts</span></div>
+      <div class="arrow" data-at="4800"></div>
+      <div class="card node hot fx pop" data-at="5200"><b>Safety checks</b><span>no invented prices or promises</span></div>
+      <div class="arrow" data-at="6000"></div>
+      <div class="card node fx pop" data-at="6400"><b>Reply or escalate</b><span>recorded in your Inbox</span></div>
+    </div>
+    <div class="fx up" data-at="8400" data-sfx="chime" style="margin-top:60px;font-size:28px;color:var(--muted)">Durable background work: it keeps running when your browser is closed.</div>
+  </section>
+
+  <!-- S6 · Real enquiries and orders (16 s) -->
+  <section class="scene" data-dur="16000">
+    <span class="eyebrow fx" data-at="200">5 · Your workforce at work</span>
+    <div class="row" style="margin-top:36px;gap:60px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:20px;width:1000px;flex:none">
+        <div class="bubble me fx right" data-at="900">Hi! How much is the Emerald wrap dress? I'd like 2 in size 10.</div>
+        <div style="position:relative">
+          <div class="typing fx" data-at="2200" data-out="3300"><i></i><i></i><i></i></div>
+          <div class="bubble ai fx left" data-at="3400">The Emerald Wrap Dress is ₦25,000. I've noted 2 in size 10; the owner will confirm your order shortly.</div>
+        </div>
+        <div class="bubble me fx right" data-at="8200" data-sfx="glitch">My last dress arrived damaged. I want a refund.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:18px;flex:1;margin-top:20px">
+        <div class="reason fx left" data-at="4600"><code>PRICE</code> from your catalogue ✓</div>
+        <div class="reason fx left" data-at="5400"><code>ORDER</code> captured · awaiting your confirmation</div>
+        <div class="reason fx left" data-at="6200"><code>LEAD</code> flagged for Orders &amp; Sales</div>
+        <div class="block fx" data-at="9600" data-sfx="impact" style="font-size:44px"><svg class="i" style="width:52px;height:52px" viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>Escalated to you</div>
+        <div class="fx up" data-at="10600" style="font-size:24px;color:var(--muted)">Complaints, refunds and anything uncertain always wait for the owner.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S7 · The owner monitors, outro (14 s) -->
+  <section class="scene" data-dur="14000">
+    <div class="center" style="gap:44px">
+      <div class="row" style="gap:28px">
+        <div class="card stat float fx up" data-at="300"><b class="violet">Inbox</b><span>every conversation, reply and escalation</span></div>
+        <div class="card stat float fx up" data-at="700"><b class="violet">Activity</b><span>every action, recorded</span></div>
+        <div class="card stat float fx up" data-at="1100"><b class="violet">Control</b><span>approvals, permissions, kill switch</span></div>
+      </div>
+      <div class="fx up blur" data-at="3200" data-sfx="shimmer"><span class="logo" style="font-size:96px">
+        <svg width="110" height="110" viewBox="0 0 32 32"><rect x="6" y="4" width="21" height="7" rx="3.5" transform="skewX(-14)" fill="currentColor"/><rect x="9" y="12.5" width="18" height="7" rx="3.5" transform="skewX(-14)" fill="currentColor" opacity=".8"/><rect x="12" y="21" width="15" height="7" rx="3.5" transform="skewX(-14)" fill="currentColor" opacity=".6"/></svg>
+        <span class="shine">EmployAI</span></span></div>
+      <p class="lead fx up blur" data-at="4400" style="font-size:36px">Your business. Your AI workforce.</p>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center">
+        <span class="chip fx pop" data-at="6000">AI by NEAR AI</span><span class="chip fx pop" data-at="6150">Payments guarded on NEAR</span><span class="chip fx pop" data-at="6300">#NEARHackathon</span>
+        <span class="chip mono fx pop" data-at="6450" style="color:var(--v300)">github.com/theboyzikky/EmployAI</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="sweep"></div>
+  <div class="flash"></div>
+  <div class="vignette"></div>
+  <canvas id="fxc" width="1920" height="1080"></canvas>
+  <div class="grain"></div>
+  <div class="label"><i></i>Illustrative demo · the shop, products and customers are fictional</div>
+</div></div>
+<div id="bar"></div>
+<div id="hint"></div>
+
+<script>
+  /* ---------- kinetic type: split headlines into masked words ---------- */
+  function splitWords(el) {
+    let wi = 0;
+    const walk = node => {
+      for (const child of [...node.childNodes]) {
+        if (child.nodeType === 3) {
+          const frag = document.createDocumentFragment();
+          for (const p of child.textContent.split(/(\s+)/)) {
+            if (!p) continue;
+            if (/^\s+$/.test(p)) { frag.appendChild(document.createTextNode(p)); continue; }
+            const w = document.createElement("span"), inner = document.createElement("span");
+            w.className = "w"; inner.className = "wi"; inner.style.setProperty("--wi", wi++); inner.textContent = p;
+            w.appendChild(inner); frag.appendChild(w);
+          }
+          child.replaceWith(frag);
+        } else if (child.nodeType === 1 && child.tagName !== "BR") walk(child);
+      }
+    };
+    walk(el);
+    el.classList.remove("fx", "up", "blur"); el.classList.add("split");
+  }
+  document.querySelectorAll(".h1, .h2").forEach(splitWords);
+  document.querySelectorAll(".float").forEach((el, i) => el.style.setProperty("--bob", (i * 1.37) % 5.5));
+
+  /* ---------- timeline ---------- */
+  const stage = document.getElementById("stage"), viewport = document.getElementById("viewport");
+  const scenes = [...document.querySelectorAll(".scene")];
+  const dur = scenes.map(s => Number(s.dataset.dur));
+  const starts = []; let total = 0;
+  for (const d of dur) { starts.push(total); total += d; }
+  let t = 0, playing = false, last = 0, current = -1, soundOn = true;
+  const sceneAt = x => { for (let i = scenes.length - 1; i >= 0; i--) if (x >= starts[i]) return i; return 0; };
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+
+  function fit() { const k = Math.min(innerWidth / 1920, innerHeight / 1080); stage.style.transform = `translate(-50%, -50%) scale(${k})`; }
+  addEventListener("resize", fit); fit();
+
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  // silent = true after a jump, so a seek doesn't fire every effect at once.
+  function render(silent) {
+    const ci = sceneAt(t);
+    scenes.forEach((s, i) => {
+      const local = t - starts[i];
+      const active = local >= 0 && local < dur[i];
+      s.classList.toggle("active", active);
+      s.classList.toggle("past", i < ci);
+      // slow camera push-in across each scene (time-driven, so it pauses with the film)
+      s.style.scale = active ? String(1 + 0.035 * (local / dur[i])) : (i < ci ? "1.035" : "1");
+      for (const el of s.querySelectorAll("[data-at]")) {
+        const on = active && local >= Number(el.dataset.at) && !(el.dataset.out && local >= Number(el.dataset.out));
+        if (on && !el.classList.contains("on") && !silent) { sfxFor(el); vfxFor(el); }
+        el.classList.toggle("on", on);
+      }
+      if (!active) return;
+      for (const el of s.querySelectorAll("[data-count]")) {
+        const host = el.closest("[data-at]"), lt = local - Number(host.dataset.at) - 200, target = Number(el.dataset.count);
+        let v;
+        if (target === 0) v = lt < 900 ? String(1 + ((Math.floor(Math.max(0, lt) / 55) * 7919 + target) % 97)) : "0"; // slot-machine roll, lands on 0
+        else v = String(Math.round(target * (1 - Math.pow(1 - clamp01(lt / 1400), 3))));
+        if (el.textContent !== v) el.textContent = v;
+      }
+      for (const el of s.querySelectorAll("[data-scramble]")) {
+        const fin = el.dataset.final || (el.dataset.final = el.textContent);
+        const host = el.closest("[data-at]"), p = clamp01((local - Number(host.dataset.at) - 250) / 1600), n = Math.floor(p * fin.length);
+        el.textContent = p >= 1 ? fin : fin.slice(0, n) + fin.slice(n).replace(/\S/g, () => B58[Math.floor(Math.random() * B58.length)]);
+      }
+    });
+    if (ci !== current) { if (!silent && current !== -1) { play("whoosh"); retrigger(document.querySelector(".sweep")); } current = ci; setMood(ci); }
+    document.getElementById("bar").style.width = `${(t / total) * 100}%`;
+  }
+  function frame(now) {
+    const dt = Math.min(50, now - last);
+    if (playing) {
+      // Stop 1 ms before the end so the last scene stays on screen instead of going black.
+      t = Math.min(total - 1, t + (now - last));
+      render(false);
+      if (t >= total - 1) { playing = false; finale(); }
+    }
+    drawBg(now, dt); drawFx(dt);
+    last = now; requestAnimationFrame(frame);
+  }
+  function seek(to) { t = to; render(true); }
+  function setPlaying(p) {
+    playing = p; ended = false;
+    if (ac) (p ? ac.resume() : ac.suspend());
+    if (p && ac) nextTick = ac.currentTime + 0.05;
+  }
+  function retrigger(el, cls = "go") { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+
+  /* ---------- visual effects ---------- */
+  function stagePos(el) {
+    let x = 0, y = 0, n = el;
+    while (n && n !== stage) { x += n.offsetLeft; y += n.offsetTop; n = n.offsetParent; }
+    return { x: x + el.offsetWidth / 2, y: y + el.offsetHeight / 2, w: el.offsetWidth, h: el.offsetHeight };
+  }
+  function vfxFor(el) {
+    const f = el.dataset.sfx;
+    if (f === "impact") { retrigger(viewport, "shake"); retrigger(document.querySelector(".flash")); const p = stagePos(el); burst(p.x - p.w / 2 + 40, p.y, { n: 70, colors: ["#f2837a", "#ff5a4f", "#ffd0cb"], speed: 14, gravity: 0.18, life: 1300, shape: "spark" }); }
+    else if (f === "thud") retrigger(viewport, "nudge");
+    else if (f === "glitch") retrigger(viewport, "nudge");
+    else if (f === "shimmer") { const p = stagePos(el.querySelector(".logo") || el); burst(p.x, p.y, { n: 60, colors: ["#ffffff", "#c6bbd5", "#9b7fd0"], speed: 7, gravity: -0.02, life: 1800, shape: "spark" }); }
+    else if (f === "chime") { const p = stagePos(el.querySelector(".paid") || el); burst(p.x, p.y, { n: 140, colors: ["#5cc48d", "#c6bbd5", "#ffffff", "#9be7bd", "#482477"], speed: 15, gravity: 0.32, life: 2600, shape: "confetti" }); }
+    else if (f === "ok") { const p = stagePos(el); burst(p.x, p.y, { n: 36, colors: ["#5cc48d", "#ffffff", "#c6bbd5"], speed: 7, gravity: 0.1, life: 1200, shape: "spark" }); }
+  }
+
+  // particles for bursts (top layer)
+  const fxc = document.getElementById("fxc"), fctx = fxc.getContext("2d"), parts = [];
+  function burst(x, y, { n, colors, speed, gravity, life, shape }) {
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2, v = speed * (0.35 + Math.random() * 0.65);
+      parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - (shape === "confetti" ? speed * 0.55 : 0), g: gravity, life, age: 0,
+        c: colors[k % colors.length], s: shape === "confetti" ? 6 + Math.random() * 8 : 1.5 + Math.random() * 2.5, r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.4, shape });
+    }
+  }
+  function drawFx(dt) {
+    fctx.clearRect(0, 0, 1920, 1080);
+    const k = dt / 16.7;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      p.age += dt; if (p.age > p.life) { parts.splice(i, 1); continue; }
+      p.vx *= Math.pow(0.985, k); p.vy = p.vy * Math.pow(0.985, k) + p.g * k; p.x += p.vx * k; p.y += p.vy * k; p.r += p.vr * k;
+      const a = 1 - p.age / p.life;
+      fctx.globalAlpha = a; fctx.fillStyle = p.c;
+      if (p.shape === "confetti") { fctx.save(); fctx.translate(p.x, p.y); fctx.rotate(p.r); fctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2 * Math.abs(Math.cos(p.r * 2))); fctx.restore(); }
+      else { // a soft halo plus a bright core (cheaper than canvas shadowBlur)
+        fctx.globalAlpha = a * 0.25; fctx.beginPath(); fctx.arc(p.x, p.y, p.s * 3.2, 0, Math.PI * 2); fctx.fill();
+        fctx.globalAlpha = a; fctx.beginPath(); fctx.arc(p.x, p.y, p.s, 0, Math.PI * 2); fctx.fill();
+      }
+    }
+    fctx.globalAlpha = 1;
+  }
+
+  // living background: drifting glow orbs that pulse with the kick drum, rising dust, and a perspective floor grid
+  // drawn at half resolution (it's all soft glow) and scaled up by CSS: much cheaper on integrated graphics
+  const bg = document.getElementById("bg"), bctx = bg.getContext("2d", { alpha: false }); bctx.scale(0.5, 0.5);
+  const dust = Array.from({ length: 120 }, () => ({ x: Math.random() * 1920, y: Math.random() * 1080, v: 0.1 + Math.random() * 0.35, s: 0.5 + Math.random() * 1.9, ph: Math.random() * 6.28 }));
+  const PAL = [
+    [[72, 36, 119], [54, 27, 89], [110, 70, 170]],   // hook
+    [[72, 36, 119], [90, 30, 60], [110, 70, 170]],   // problem: a hint of red
+    [[72, 36, 119], [54, 27, 89], [120, 80, 190]],   // how it works
+    [[72, 36, 119], [40, 60, 110], [120, 80, 190]],  // safety layers: a cooler blue
+    [[72, 36, 119], [30, 90, 70], [120, 80, 190]],   // payment: a hint of green
+    [[150, 30, 40], [90, 20, 50], [120, 30, 60]],    // attack: red alert
+    [[90, 45, 150], [54, 27, 89], [140, 100, 210]],  // outro: brightest
+  ];
+  let pal = PAL[0].map(c => c.slice()), beatLevel = 0, lastPhase = 0;
+  const gridGrad = (() => { const g = bctx.createLinearGradient(0, 700, 0, 1080); g.addColorStop(0, "rgba(198,187,213,0)"); g.addColorStop(1, "rgba(198,187,213,.13)"); return g; })();
+  function drawBg(now, dt) {
+    // visual beat: from the audio scheduler when sound is on; from the timeline otherwise
+    if (playing && (!ac || !soundOn || ac.state !== "running")) {
+      const ph = (t / (60000 / 118)) % 1; if (ph < lastPhase && mood.kick) beatLevel = 1; lastPhase = ph;
+    }
+    beatLevel *= Math.pow(0.9, dt / 16.7);
+    const target = PAL[Math.max(0, current)];
+    for (let i = 0; i < 3; i++) for (let c = 0; c < 3; c++) pal[i][c] += (target[i][c] - pal[i][c]) * 0.03;
+    const T = now;
+    bctx.globalCompositeOperation = "source-over"; bctx.fillStyle = "#000"; bctx.fillRect(0, 0, 1920, 1080);
+    bctx.globalCompositeOperation = "lighter";
+    const orbs = [
+      [1500 + 170 * Math.sin(T * 0.00011), 230 + 90 * Math.cos(T * 0.00013), 800, 0.5],
+      [260 + 150 * Math.cos(T * 0.00009), 900 + 80 * Math.sin(T * 0.00012), 680, 0.42],
+      [960 + 420 * Math.sin(T * 0.00006), 520 + 200 * Math.sin(T * 0.00008), 540, 0.2],
+    ];
+    orbs.forEach(([x, y, r, a], i) => {
+      const [cr, cg, cb] = pal[i].map(Math.round), A = a + 0.1 * beatLevel, R = r * (1 + 0.05 * beatLevel);
+      const g = bctx.createRadialGradient(x, y, 0, x, y, R);
+      g.addColorStop(0, `rgba(${cr},${cg},${cb},${A})`); g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+      bctx.fillStyle = g; bctx.fillRect(x - R, y - R, R * 2, R * 2);
+    });
+    // perspective floor grid, scrolling toward the viewer
+    bctx.globalCompositeOperation = "source-over";
+    bctx.strokeStyle = gridGrad; bctx.lineWidth = 1.2;
+    const hy = 700, vx = 960, scroll = (T * 0.00025) % 1;
+    bctx.beginPath();
+    for (let k = -14; k <= 14; k++) { bctx.moveTo(vx + k * 18, hy); bctx.lineTo(vx + k * 260, 1080); }
+    for (let k = 0; k < 10; k++) { const z = (k + scroll) / 10, y = hy + (1080 - hy) * z * z; bctx.moveTo(0, y); bctx.lineTo(1920, y); }
+    bctx.stroke();
+    // dust
+    for (const d of dust) {
+      d.y -= d.v * (1 + 2 * beatLevel) * dt / 16.7; d.x += Math.sin(T * 0.0004 + d.ph) * 0.15;
+      if (d.y < -10) { d.y = 1090; d.x = Math.random() * 1920; }
+      const a = (0.2 + 0.35 * (0.5 + 0.5 * Math.sin(T * 0.002 + d.ph))) * (1 + beatLevel);
+      bctx.fillStyle = `rgba(214,204,232,${Math.min(0.9, a)})`; bctx.beginPath(); bctx.arc(d.x, d.y, d.s, 0, 6.283); bctx.fill();
+    }
+  }
+
+  /* ---------- audio: generated live with Web Audio (nothing downloaded, no licensing) ---------- */
+  let ac = null, out, musicBus, musicFilter, padPump, sfxBus, verb, noiseBuf, ended = false;
+  const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+  function initAudio() {
+    if (ac) return;
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+    out = ac.createGain(); out.gain.value = soundOn ? 1 : 0; out.connect(comp); comp.connect(ac.destination);
+    musicFilter = ac.createBiquadFilter(); musicFilter.type = "lowpass"; musicFilter.frequency.value = mood.cutoff; musicFilter.connect(out);
+    musicBus = ac.createGain(); musicBus.gain.value = 0.55; musicBus.connect(musicFilter);
+    padPump = ac.createGain(); padPump.connect(musicBus); // ducks on every kick: the "pumping" dance-pop feel
+    sfxBus = ac.createGain(); sfxBus.gain.value = 0.9; sfxBus.connect(out);
+    verb = ac.createConvolver();
+    const len = ac.sampleRate * 2.2, ir = ac.createBuffer(2, len, ac.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let k = 0; k < len; k++) d[k] = (Math.random() * 2 - 1) * Math.pow(1 - k / len, 3); }
+    verb.buffer = ir; const vg = ac.createGain(); vg.gain.value = 0.28; verb.connect(vg); vg.connect(out);
+    noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const nd = noiseBuf.getChannelData(0); for (let k = 0; k < nd.length; k++) nd[k] = Math.random() * 2 - 1;
+    if (!playing) ac.suspend();
+    setInterval(schedule, 50);
+  }
+  function env(g, at, a, peak, d) { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + a); g.gain.exponentialRampToValueAtTime(0.0001, at + a + d); }
+  function route(node, bus, send) { node.connect(bus); if (send) { const s = ac.createGain(); s.gain.value = send; node.connect(s); s.connect(verb); } }
+  function tone(at, { f, f2, type = "sine", a = 0.005, peak = 0.1, d = 0.2, send = 0, bus = sfxBus, lp }) {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = type;
+    o.frequency.setValueAtTime(f, at); if (f2) o.frequency.exponentialRampToValueAtTime(f2, at + a + d);
+    env(g, at, a, peak, d);
+    if (lp) { const fl = ac.createBiquadFilter(); fl.type = "lowpass"; fl.frequency.value = lp; o.connect(fl); fl.connect(g); } else o.connect(g);
+    route(g, bus, send); o.start(at); o.stop(at + a + d + 0.05);
+  }
+  function noise(at, { type = "bandpass", f0, f1, f2, q = 1, a = 0.01, peak = 0.1, d = 0.3, send = 0, bus = sfxBus }) {
+    const src = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noiseBuf; fl.type = type; fl.Q.value = q;
+    fl.frequency.setValueAtTime(f0, at);
+    if (f1) fl.frequency.exponentialRampToValueAtTime(f1, at + a);
+    if (f2) fl.frequency.exponentialRampToValueAtTime(f2, at + a + d);
+    env(g, at, a, peak, d); src.connect(fl); fl.connect(g); route(g, bus, send);
+    src.start(at); src.stop(at + a + d + 0.05);
+  }
+
+  /* sound effects */
+  const SFX = {
+    tick(at) { tone(at, { f: 1400 + Math.random() * 500, f2: 700, peak: 0.09, d: 0.09, send: 0.25 }); },
+    swish(at) { noise(at, { f0: 700, f1: 3500, f2: 1200, q: 2, a: 0.15, peak: 0.06, d: 0.25 }); },
+    whoosh(at) { noise(at, { f0: 180, f1: 3000, f2: 300, q: 1.4, a: 0.4, peak: 0.2, d: 0.6, send: 0.5 }); tone(at + 0.35, { f: 70, f2: 40, peak: 0.25, d: 0.5 }); },
+    swell(at) { noise(at, { f0: 400, f1: 2400, f2: 800, q: 0.8, a: 0.35, peak: 0.07, d: 0.7 }); tone(at + 0.3, { f: hz(84), type: "triangle", peak: 0.04, d: 0.9, send: 0.6 }); },
+    shimmer(at) { [72, 76, 79, 84, 88].forEach((m, k) => tone(at + k * 0.06, { f: hz(m), type: "triangle", peak: 0.05, d: 1.4, send: 0.8 })); },
+    ok(at) { [84, 91].forEach((m, k) => tone(at + k * 0.09, { f: hz(m), type: "triangle", peak: 0.08, d: 0.9, send: 0.6 })); },
+    scan(at) { tone(at, { f: 300, f2: 1800, type: "sawtooth", a: 0.05, peak: 0.03, d: 1.3, lp: 2500, send: 0.4 }); },
+    chime(at) {
+      [72, 76, 79, 84, 88, 91].forEach((m, k) => tone(at + k * 0.07, { f: hz(m), type: "triangle", peak: 0.09, d: 1.6, send: 0.7 }));
+      tone(at, { f: hz(48), peak: 0.15, a: 0.01, d: 1.2 });
+    },
+    glitch(at) {
+      for (let k = 0; k < 10; k++) {
+        const s = at + k * 0.045 + Math.random() * 0.02;
+        tone(s, { f: 200 + Math.random() * 1800, type: "square", peak: 0.04, d: 0.03, lp: 3000 });
+        if (k % 3 === 0) noise(s, { type: "highpass", f0: 2000, peak: 0.06, d: 0.04 });
+      }
+    },
+    impact(at) {
+      tone(at, { f: 100, f2: 28, a: 0.005, peak: 0.9, d: 1.1 });
+      noise(at, { type: "lowpass", f0: 1200, f2: 120, peak: 0.4, d: 0.8, send: 0.5 });
+      [233, 247].forEach(f => tone(at + 0.02, { f, type: "sawtooth", peak: 0.06, a: 0.01, d: 0.5, lp: 1500 }));
+    },
+    thud(at) { tone(at, { f: 85, f2: 40, peak: 0.45, d: 0.3 }); SFX.tick(at); },
+  };
+  function play(name) { if (!ac || !soundOn || !playing || !SFX[name]) return; SFX[name](ac.currentTime + 0.01); }
+  function sfxFor(el) {
+    const n = el.dataset.sfx || (el.matches(".card,.chip,.reason,.bubble") ? "tick" : el.classList.contains("arrow") ? "swish" : null);
+    if (n) play(n);
+  }
+
+  /* Upbeat soundtrack: 118 BPM dance-pop in C major. Four-on-the-floor kick, claps on 2 and 4, offbeat hats,
+     octave-bouncing bass, a plucked arpeggio and a pumping pad. Each scene sets the energy;
+     the attack scene drops to a tense half-time groove, and the outro lifts back up. */
+  const CH = { C: [60, 64, 67, 72], G: [55, 59, 62, 67], Am: [57, 60, 64, 69], F: [53, 57, 60, 65], Dm: [50, 57, 62, 65], Bb: [58, 62, 65, 70], E: [56, 59, 64, 68] };
+  const MOOD = [
+    { prog: ["C", "G", "Am", "F"],  kick: 0, clap: 0, hat: 0.5, bass: 0,   arp: 1,   cutoff: 1800 },  // hook: filtered build
+    { prog: ["Am", "F", "C", "G"],  kick: 1, clap: 0, hat: 0.8, bass: 1,   arp: 0.6, cutoff: 7000 },  // problem
+    { prog: ["C", "G", "Am", "F"],  kick: 1, clap: 1, hat: 1,   bass: 1,   arp: 1,   cutoff: 16000 }, // how it works
+    { prog: ["F", "G", "C", "Am"],  kick: 1, clap: 1, hat: 1,   bass: 1,   arp: 1,   cutoff: 16000 }, // safety layers
+    { prog: ["C", "G", "Am", "F"],  kick: 1, clap: 1, hat: 1,   bass: 1,   arp: 1,   cutoff: 16000 }, // real payment
+    { prog: ["Am", "Bb", "Am", "E"], kick: 1, clap: 0, hat: 0.6, bass: 1,  arp: 0,   cutoff: 2600, half: true }, // attack
+    { prog: ["F", "G", "C", "C"],   kick: 1, clap: 1, hat: 1,   bass: 1,   arp: 1,   cutoff: 16000 }, // outro
+  ];
+  const EIGHTH = 60 / 118 / 2;
+  let mood = MOOD[0], nextTick = 0, step = 0;
+  function setMood(i) {
+    if (MOOD[i] === mood) return;
+    mood = MOOD[i]; step = 0; // new scene starts on a fresh bar
+    if (ac) musicFilter.frequency.setTargetAtTime(mood.cutoff, ac.currentTime, 0.25);
+  }
+  function schedule() {
+    if (!ac || ac.state !== "running" || !playing) return;
+    if (nextTick < ac.currentTime) nextTick = ac.currentTime + 0.05;
+    while (nextTick < ac.currentTime + 0.25) { beat(step, nextTick); nextTick += EIGHTH; step++; }
+  }
+  function pad(chord, at, len, peak) {
+    for (const m of chord) for (const det of [-8, 8]) {
+      const o = ac.createOscillator(), fl = ac.createBiquadFilter(), g = ac.createGain();
+      o.type = "sawtooth"; o.frequency.value = hz(m); o.detune.value = det;
+      fl.type = "lowpass"; fl.frequency.value = 2200;
+      g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + 0.05);
+      g.gain.setValueAtTime(peak, at + len - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, at + len + 0.4);
+      o.connect(fl); fl.connect(g); route(g, padPump, 0.25); o.start(at); o.stop(at + len + 0.5);
+    }
+  }
+  function beat(n, at) {
+    const chord = CH[mood.prog[Math.floor(n / 8) % 4]], root = (chord[0] % 12) + 36;
+    if (n % 8 === 0) pad(chord, at, EIGHTH * 8, 0.018);
+    const onBeat = n % 2 === 0, kickHere = mood.half ? n % 4 === 0 : onBeat;
+    if (mood.kick && kickHere) {
+      tone(at, { f: 160, f2: 45, a: 0.002, peak: 0.85 * mood.kick, d: 0.28, bus: musicBus });
+      padPump.gain.setValueAtTime(0.3, at); padPump.gain.linearRampToValueAtTime(1, at + 0.2);
+      setTimeout(() => { beatLevel = 1; }, Math.max(0, (at - ac.currentTime) * 1000)); // the background pulses on the kick
+    }
+    if (mood.clap && n % 8 === 2 || mood.clap && n % 8 === 6) {
+      for (const off of [0, 0.012, 0.024]) noise(at + off, { f0: 1500, q: 0.9, a: 0.002, peak: 0.16 * mood.clap, d: 0.1, bus: musicBus, send: 0.3 });
+    }
+    if (mood.hat && !onBeat) noise(at, { type: "highpass", f0: 8000, a: 0.002, peak: 0.07 * mood.hat, d: 0.045, bus: musicBus });
+    if (mood.hat && onBeat && mood.clap) noise(at, { type: "highpass", f0: 10000, a: 0.002, peak: 0.025 * mood.hat, d: 0.02, bus: musicBus });
+    if (mood.bass) tone(at, { f: hz(root + (n % 2 ? 12 : 0)), type: "sawtooth", a: 0.004, peak: 0.13 * mood.bass, d: EIGHTH * 0.8, lp: 700, bus: musicBus });
+    if (mood.arp) {
+      const pat = [0, 1, 2, 3, 2, 1, 2, 3];
+      tone(at, { f: hz(chord[pat[n % 8]] + 12), type: "square", a: 0.003, peak: 0.035 * mood.arp, d: 0.16, lp: 3200, send: 0.4, bus: musicBus });
+    }
+  }
+  // At the end of the film: one last big chord and a cymbal, then silence.
+  function finale() {
+    if (!ac || ended) return; ended = true;
+    const at = ac.currentTime + 0.02;
+    pad(CH.C, at, 2.4, 0.02);
+    tone(at, { f: hz(36), type: "sawtooth", peak: 0.14, d: 2, lp: 600, bus: musicBus });
+    tone(at, { f: 160, f2: 45, a: 0.002, peak: 0.85, d: 0.4, bus: musicBus });
+    noise(at, { type: "highpass", f0: 5000, a: 0.005, peak: 0.12, d: 2.2, send: 0.4, bus: musicBus });
+    beatLevel = 1.5;
+  }
+
+  /* ---------- controls ---------- */
+  function hint() {
+    document.getElementById("hint").textContent =
+      `Space play/pause · R restart · 1–7 scenes · M sound ${soundOn ? "on" : "off"} · H hide · F fullscreen`;
+  }
+  hint();
+  t = 1; render(true); // first frame of scene 1, paused, so recording can begin cleanly
+  requestAnimationFrame(n => { last = n; frame(n); });
+
+  addEventListener("keydown", e => {
+    initAudio(); // browsers only allow sound after a key press
+    const k = e.key.toLowerCase();
+    if (e.code === "Space") { e.preventDefault(); if (t >= total - 1) seek(0); setPlaying(!playing); }
+    else if (k === "r") { seek(0); setPlaying(true); }
+    else if (/^[1-7]$/.test(k)) { seek(starts[Number(k) - 1]); setPlaying(true); }
+    else if (k === "m") { soundOn = !soundOn; out.gain.setTargetAtTime(soundOn ? 1 : 0, ac.currentTime, 0.05); }
+    else if (k === "h") document.body.classList.toggle("hints");
+    else if (k === "f") (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+    hint();
+  });
+</script>
+</body>
+</html>

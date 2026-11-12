@@ -114,17 +114,17 @@ describe("spending safeguards", () => {
     expect(chatCalls - before).toBe(0);
   });
 
-  test("the call ceiling holds across instances sharing the store", () => {
+  test("the call ceiling holds across instances sharing the store", async () => {
     const store = new MemorySpendStore();
     const mk = () => new SpendingGuard({ provider: "t", capUsdPerDay: 1, maxCalls: 2, prices: { m: { prompt: 0, completion: 0 } }, store });
-    mk().reserve("m", 1, 1); mk().reserve("m", 1, 1);
-    expect(() => mk().reserve("m", 1, 1)).toThrow(/Call limit/);
+    await mk().reserve("m", 1, 1); await mk().reserve("m", 1, 1);
+    await expect(mk().reserve("m", 1, 1)).rejects.toThrow(/Call limit/);
   });
 
-  test("a failed request is charged at worst case", () => {
+  test("a failed request is charged at worst case", async () => {
     const store = new MemorySpendStore();
     const g = new SpendingGuard({ provider: "t", capUsdPerDay: 1, maxCalls: 9, prices: { m: { prompt: 0.001, completion: 0.002 } }, store });
-    g.fail(g.reserve("m", 100, 50));
-    expect(g.spentToday()).toBeCloseTo(100 * 0.001 + 50 * 0.002, 9);
+    await g.fail(await g.reserve("m", 100, 50));
+    expect(await g.spentToday()).toBeCloseTo(100 * 0.001 + 50 * 0.002, 9);
   });
 });

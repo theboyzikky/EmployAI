@@ -109,7 +109,7 @@ export async function approveWorkflow(business: BusinessRecord, workflowId: stri
       throw new ServiceError("WORKFLOW_INVALID", 409, "This workflow has failed checks, so it can't be approved.");
     }
     // M4 · D18: never change which version is approved while a test run is using one.
-    const active = await repo.readState(s => ((s.runs ?? {})[business.id] ?? []).some(r => ACTIVE_RUN_STATUSES.includes(r.status)));
+    const active = await repo.readState(business.id, s => ((s.runs ?? {})[business.id] ?? []).some(r => ACTIVE_RUN_STATUSES.includes(r.status)));
     if (active) throw new ServiceError("RUN_IN_PROGRESS", 409, "A test run is in progress. Wait for it to finish, or stop it, before approving another version.");
     const now = new Date().toISOString();
     for (const old of list.filter(w => w.status === "approved")) await repo.updateWorkflow(business.id, old.id, { status: "superseded" });

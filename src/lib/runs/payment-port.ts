@@ -62,8 +62,9 @@ export interface PaymentChain {
   /**
    * Fail-closed signer: fresh key check last, then ONE signature. Never broadcasts. A retry passes its
    * mode; the signer re-checks the contract-side condition for it (Failed record, or expired window).
+   * `minNonceExclusive`: the highest nonce any server instance has persisted; the new nonce is above it.
    */
-  sign(input: { requestId: string; recipient: string; amountYocto: string; mode?: "new" | "retry_after_failed" | "resubmit_after_expiry"; previousExpiresAfterHeight?: number | null }): Promise<SignOutcome>;
+  sign(input: { requestId: string; recipient: string; amountYocto: string; mode?: "new" | "retry_after_failed" | "resubmit_after_expiry"; previousExpiresAfterHeight?: number | null; minNonceExclusive?: string | null }): Promise<SignOutcome>;
   /** Send the given bytes ONCE (never retried here) and verify the outcome (plan §12). */
   broadcast(input: { signedTxBase64: string; requestId: string; recipient: string; amountYocto: string }): Promise<ChainVerdict>;
   /** Decide from the contract's request record (primary) and the tx outcome (secondary), §11.1. */

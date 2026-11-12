@@ -7,11 +7,13 @@ import "server-only";
 //    setRunControl / clearRunControl (the runner may clear it only by compare-and-set);
 //  - security decisions, ledger entries and activity events are APPEND-ONLY: this class has no method
 //    that updates or deletes them (asserted by a test).
-// SINGLE-PROCESS ONLY, like the store it wraps.
+// Each transaction is scoped to ONE business (plus the shared blocklist); the shared store makes it
+// atomic across server instances (src/lib/store/redis-store.ts).
 import { randomUUID } from "node:crypto";
 import type { AgentKey } from "@/lib/catalogue/catalogue";
 import type { BlocklistReport } from "@/lib/security/blocklist";
-import { discoveryRepository, type AgentRecord, type AgentStatus, type BusinessRecord, type DevState, type WorkflowRecord } from "@/lib/discovery/store";
+import { enqueueTaskIn } from "@/lib/automation/tasks";
+import { discoveryRepository, type AgentRecord, type AgentStatus, type BusinessRecord, type DevState, type TxOptions, type WorkflowRecord } from "@/lib/discovery/store";
 import type { ActivityEvent, Actor, ApprovalRecord, ApprovalStatus, LedgerRecord, PaymentAttempt, RunControl, RunRecord, RunStatus, RunStepRecord, SecurityDecisionRecord, TestnetBatch, TestnetLedgerRecord, TestRunLedgerRecord } from "./types";
 
 const copy = <T>(x: T): T => structuredClone(x);
@@ -55,6 +57,16 @@ export class RunTx {
   armedBatch(businessId: string): TestnetBatch | null {
     const b = ((this.s.testnet_batches ?? {})[businessId] ?? []).find(x => !x.disarmed_at && x.expires_at > this.now);
     return b ? copy(b) : null;
+  }
+
+  // ---- P0 · background continuation ----------------------------------------------------------------
+  /**
+   * Ask the automation engine to keep driving this run in the background (one live task per run). Called
+   * in the same commit as the transition that needs it, so the run continues even if the owner closes
+   * the app. Driving goes through the same advanceRun(), leases, locks and payment safeguards as the UI.
+   */
+  enqueueAdvance(businessId: string, runId: string, delayMs = 0): void {
+    enqueueTaskIn(this.s, businessId, { kind: "advance_run", ref: runId, dedupeKey: `run:${runId}`, delayMs }, this.now);
   }
 
   // ---- M5 · testnet batches ----------------------------------------------------------------------
@@ -238,15 +250,19 @@ export class RunTx {
   }
 }
 
-/** One serialised, atomic read-modify-write on the latest stored state. `fn` must be synchronous. */
-export function runTransact<T>(fn: (tx: RunTx) => T): Promise<T> {
-  return discoveryRepository().transact(s => fn(new RunTx(s)));
+/**
+ * One atomic read-modify-write on the latest stored state of ONE business (plus the shared blocklist).
+ * `fn` must be synchronous and free of outside side effects: the shared store may run it again after
+ * a version conflict. `opts` adds lock fences and side writes checked/applied in the same commit.
+ */
+export function runTransact<T>(businessId: string, fn: (tx: RunTx) => T, opts?: TxOptions): Promise<T> {
+  return discoveryRepository().transact(businessId, s => fn(new RunTx(s)), opts);
 }
 
 /**
  * Read-only access for views and GET requests. It works on a private copy, so nothing done here is ever
  * written: GET can't execute steps or persist transitions (D11).
  */
-export function runRead<T>(fn: (tx: RunTx) => T): Promise<T> {
-  return discoveryRepository().readState(s => fn(new RunTx(s)));
+export function runRead<T>(businessId: string, fn: (tx: RunTx) => T): Promise<T> {
+  return discoveryRepository().readState(businessId, s => fn(new RunTx(s)));
 }

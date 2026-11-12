@@ -47,6 +47,12 @@ export type PaymentToSign = {
   requestId: string;
   recipient: string;
   amountYocto: string;
+  /**
+   * Hosted demo: the highest nonce any server instance has persisted for this key (shared store). The
+   * new nonce is above it AND above the on-chain nonce, so instances never reuse a nonce even before
+   * the chain has seen the previous transaction. Absent/null locally.
+   */
+  minNonceExclusive?: string | null;
 } & (
   /** No on-chain record may exist, and this process must not have signed this request before. */
   | { mode: "new" }
@@ -161,7 +167,10 @@ export async function signPaymentRequest(
 
       const onChain = BigInt(key.nonce);
       const prev = lastNonce.get(agentKey.publicKey) ?? onChain;
-      const nonce = (onChain > prev ? onChain : prev) + BigInt(1);
+      const floor = pay.minNonceExclusive && /^\d{1,30}$/.test(pay.minNonceExclusive) ? BigInt(pay.minNonceExclusive) : onChain;
+      let top = onChain > prev ? onChain : prev;
+      if (floor > top) top = floor;
+      const nonce = top + BigInt(1);
       const args = { request_id: pay.requestId, recipient: pay.recipient, amount: pay.amountYocto };
       const tx = createTransaction(
         config.agent, PublicKey.fromString(agentKey.publicKey), config.treasury, nonce,

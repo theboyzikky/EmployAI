@@ -191,7 +191,7 @@ export async function startRun(businessId: string, input: { workflowId: string; 
     if (!av.ok) throw new ServiceError(av.code, 503, av.message);
   }
   return lockWait(businessId, async () => {
-    const out = await runTransact(tx => {
+    const out = await runTransact(businessId, tx => {
       const existing = tx.runs(businessId).find(r => r.idempotency_key === input.idempotencyKey);
       if (existing) return { runId: existing.id, created: false };     // AT-07: a repeated start returns the same run
       const business = tx.business(businessId);
@@ -216,6 +216,7 @@ export async function startRun(businessId: string, input: { workflowId: string; 
         expected: expectedFor(doc, input.scenario, spent, mode, paidTestnet(tx, businessId)), end_reason: null, error: null,
       });
       tx.appendEvent(businessId, "owner", "run.started", `run:${run.id}`, "running", run.id, { workflow_version: elig.workflow.version, scenario: input.scenario, mode, batch: batch?.batch_ref ?? null });
+      tx.enqueueAdvance(businessId, run.id);   // keeps going in the background, with or without the browser
       return { runId: run.id, created: true };
     });
     if ("refusal" in out && out.refusal) throw new ServiceError(out.refusal.code, out.refusal.status, out.refusal.message);
@@ -282,7 +283,7 @@ export type AdvanceResult = { advanced: number; more: boolean; settling: boolean
  * advance without ever re-signing a persisted transaction.
  */
 export async function advanceRun(businessId: string, runId: string, hooks?: RunHooks): Promise<AdvanceResult> {
-  const peek = await runRead(tx => tx.run(businessId, runId));
+  const peek = await runRead(businessId, tx => tx.run(businessId, runId));
   if (!peek) throw new ServiceError("NOT_FOUND", 404, "That run doesn't exist.");
   if (peek.mode !== "testnet") return lockWait(businessId, () => runBatch(businessId, runId, NO_ENV, hooks));
 
@@ -291,14 +292,14 @@ export async function advanceRun(businessId: string, runId: string, hooks?: RunH
   const env: RunEnv = { chain: av.chain, precheck: null };
   const drove = new Set<string>();
   await driveRunAttempts(businessId, runId, av.chain);
-  const pending = await runRead(tx => tx.attempts(businessId).filter(a => a.run_id === runId && !TERMINAL_ATTEMPT_STATUSES.includes(a.status)).map(a => a.id));
+  const pending = await runRead(businessId, tx => tx.attempts(businessId).filter(a => a.run_id === runId && !TERMINAL_ATTEMPT_STATUSES.includes(a.status)).map(a => a.id));
   for (const id of pending) drove.add(id);
   let advanced = 0;
   let last: AdvanceResult = { advanced: 0, more: false, settling: false };
   for (let round = 0; round < 4; round++) {
     last = await lockWait(businessId, () => runBatch(businessId, runId, env, hooks));
     advanced += last.advanced;
-    const work = await runRead(tx => chainWorkFor(tx, businessId, runId, env));
+    const work = await runRead(businessId, tx => chainWorkFor(tx, businessId, runId, env));
     if (!work) break;
     if (work.kind === "precheck") {
       if (env.precheck?.requestKey === work.requestKey) break;
@@ -309,7 +310,7 @@ export async function advanceRun(businessId: string, runId: string, hooks?: RunH
     drove.add(work.attemptId);
     await driveAttempt(businessId, work.attemptId, av.chain);
   }
-  const unfinished = await runRead(tx => tx.attempts(businessId).some(a => a.run_id === runId && !TERMINAL_ATTEMPT_STATUSES.includes(a.status)));
+  const unfinished = await runRead(businessId, tx => tx.attempts(businessId).some(a => a.run_id === runId && !TERMINAL_ATTEMPT_STATUSES.includes(a.status)));
   return { advanced, more: !unfinished && last.more, settling: unfinished || last.settling };
 }
 
@@ -340,12 +341,12 @@ async function runBatch(businessId: string, runId: string, env: RunEnv, hooks?: 
   {
     const started = Date.now();
     let advanced = 0;
-    const first = await runRead(tx => ({ run: tx.run(businessId, runId), steps: tx.steps(runId) }));
+    const first = await runRead(businessId, tx => ({ run: tx.run(businessId, runId), steps: tx.steps(runId) }));
     if (!first.run) throw new ServiceError("NOT_FOUND", 404, "That run doesn't exist.");
     if (first.run.status === "waiting_approval") {
       // Persist an approval that expired while waiting (GET only shows it): the run then takes the
       // workflow's "rejected" route on this same advance.
-      const expired = await runTransact(tx => {
+      const expired = await runTransact(businessId, tx => {
         const a = tx.approvals(businessId).find(x => x.run_id === runId && x.status === "pending");
         if (!a || !isExpired(a.expires_at, tx.now)) return false;
         tx.patchApproval(businessId, a.id, ["pending"], { status: "expired", decided_at: tx.now, decided_by: "system" });
@@ -359,10 +360,10 @@ async function runBatch(businessId: string, runId: string, env: RunEnv, hooks?: 
     if (first.steps.some(s => s.status === "running")) {
       // A step was saved as running by a batch that never finished (the server stopped mid-step).
       if (!leaseExpired(first.run, nowIso(hooks))) return { advanced: 0, more: false, settling: true };
-      await runTransact(tx => { const r = tx.run(businessId, runId); if (r) markInterrupted(tx, r); });
+      await runTransact(businessId, tx => { const r = tx.run(businessId, runId); if (r) markInterrupted(tx, r); });
       return { advanced: 0, more: false, settling: false };
     }
-    if (!(await runTransact(tx => tx.patchRun(businessId, runId, { lease_expires_at: addMs(nowIso(hooks), LEASE_MS) }, { status: ["running"] })))) {
+    if (!(await runTransact(businessId, tx => tx.patchRun(businessId, runId, { lease_expires_at: addMs(nowIso(hooks), LEASE_MS) }, { status: ["running"] })))) {
       return { advanced: 0, more: false, settling: false };
     }
     try {
@@ -374,9 +375,9 @@ async function runBatch(businessId: string, runId: string, env: RunEnv, hooks?: 
       }
     } finally {
       // Release the lease whatever happened (a real crash never reaches here: that is what the lease detects).
-      await runTransact(tx => tx.patchRun(businessId, runId, { lease_expires_at: null }));
+      await runTransact(businessId, tx => tx.patchRun(businessId, runId, { lease_expires_at: null }));
     }
-    const after = await runRead(tx => tx.run(businessId, runId));
+    const after = await runRead(businessId, tx => tx.run(businessId, runId));
     return { advanced, more: !!after && after.status === "running" && after.cursor !== null, settling: false };
   }
 }
@@ -385,7 +386,7 @@ type StepOutcome = "executed" | "retry" | "stopped";
 
 async function runOneStep(businessId: string, runId: string, env: RunEnv, hooks?: RunHooks): Promise<StepOutcome> {
   // 1 · Fresh read: every write queued before this read is visible (kill switch, pause, stop).
-  const pre = await runTransact(tx => {
+  const pre = await runTransact(businessId, tx => {
     const run = tx.run(businessId, runId);
     if (!run || run.status !== "running") return { stop: true as const };
     const business = tx.business(businessId)!;
@@ -453,7 +454,7 @@ async function runOneStep(businessId: string, runId: string, env: RunEnv, hooks?
   let exec: { output: unknown; reasoning: string | null; toolsUsed: string[]; reads: string[]; writes: string[]; simulated: string[]; error: { code: string; message: string } | null; transient: boolean } =
     { output: null, reasoning: null, toolsUsed: [], reads: [], writes: [], simulated: [], error: null, transient: false };
   if (needsAgentHandler(step)) {
-    const snapNow = await runRead(tx => gateBase(tx, businessId, doc, run.demo_snapshot as DemoScenario, nowIso(hooks)));
+    const snapNow = await runRead(businessId, tx => gateBase(tx, businessId, doc, run.demo_snapshot as DemoScenario, nowIso(hooks)));
     try {
       exec = executeAgentStep(step, doc, run, agents, work, snapNow);
       if (Date.now() - t0 > STEP_TIMEOUT_MS) throw new TransientError("STEP_TIMEOUT");
@@ -466,7 +467,7 @@ async function runOneStep(businessId: string, runId: string, env: RunEnv, hooks?
   await hooks?.beforeCommit?.(step.id);
 
   // 4 · Commit in ONE atomic write, re-checking the kill switch, the control request and the status.
-  return runTransact(tx => commitStep(tx, { businessId, runId, step, doc, rec, exec, work, durationMs, nowIsoStr: nowIso(hooks), env }));
+  return runTransact(businessId, tx => commitStep(tx, { businessId, runId, step, doc, rec, exec, work, durationMs, nowIsoStr: nowIso(hooks), env }));
 }
 
 const needsAgentHandler = (s: Step) => s.type === "agent_task" || (s.type === "notify") || s.type === "payment";
@@ -862,7 +863,7 @@ function commitTestnetPayment(tx: RunTx, a: CommitArgs, run: RunRecord, finishSt
 
 export async function decideApproval(businessId: string, approvalId: string, decision: "approve" | "reject"): Promise<{ runId: string }> {
   // M5: approving a testnet payment re-checks its binding against the chain target in use NOW.
-  const isTestnet = decision === "approve" && (await runRead(tx => tx.approvals(businessId).find(x => x.id === approvalId)?.mode)) === "testnet";
+  const isTestnet = decision === "approve" && (await runRead(businessId, tx => tx.approvals(businessId).find(x => x.id === approvalId)?.mode)) === "testnet";
   let target: PaymentChain["target"] | null = null;
   if (isTestnet) {
     const av = await getPaymentChain();
@@ -870,7 +871,7 @@ export async function decideApproval(businessId: string, approvalId: string, dec
     target = av.chain.target;
   }
   return lockWait(businessId, async () => {
-    const out = await runTransact(tx => {
+    const out = await runTransact(businessId, tx => {
       const a = tx.approvals(businessId).find(x => x.id === approvalId);
       if (!a) return { err: ["NOT_FOUND", 404, "That approval doesn't exist."] as const };
       const run = tx.run(businessId, a.run_id);
@@ -927,6 +928,7 @@ export async function decideApproval(businessId: string, approvalId: string, dec
       if (!tx.patchApproval(businessId, a.id, ["pending"], { status, decided_at: tx.now, decided_by: "owner" })) return { err: ["ALREADY_DECIDED", 409, "This approval has already been settled."] as const, runId: run.id };
       tx.patchRun(businessId, run.id, { status: "running" }, { status: ["waiting_approval"], control: null });
       tx.appendEvent(businessId, "owner", `approval.${status}`, `approval:${a.id}`, status, run.id, {});
+      tx.enqueueAdvance(businessId, run.id);   // continue (or settle the rejection) in the background
       return { runId: run.id };
     });
     if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);
@@ -936,7 +938,7 @@ export async function decideApproval(businessId: string, approvalId: string, dec
 
 /** Pause or stop: the request is persisted AT ONCE through the store queue (no business lock), then finalised. */
 export async function requestControl(businessId: string, runId: string, control: "pause" | "stop"): Promise<{ finalised: boolean }> {
-  const recorded = await runTransact(tx => {
+  const recorded = await runTransact(businessId, tx => {
     const run = tx.run(businessId, runId);
     if (!run) return { err: ["NOT_FOUND", 404, "That run doesn't exist."] as const };
     const allowed: readonly RunStatus[] = control === "pause" ? ["running"] : ACTIVE_RUN_STATUSES;
@@ -946,7 +948,7 @@ export async function requestControl(businessId: string, runId: string, control:
   });
   if ("err" in recorded && recorded.err) throw new ServiceError(recorded.err[0], recorded.err[1], recorded.err[2]);
   try {
-    await withBusinessLock(businessId, () => runTransact(tx => {
+    await withBusinessLock(businessId, () => runTransact(businessId, tx => {
       const run = tx.run(businessId, runId);
       if (!run || !run.control) return;
       if (run.control === "stop") finaliseCancel(tx, run, "STOPPED_BY_OWNER", "owner");
@@ -967,7 +969,7 @@ export async function requestControl(businessId: string, runId: string, control:
 /** Resume a paused or interrupted run (it runs again only when the page advances it). */
 export async function resumeRun(businessId: string, runId: string, hooks?: RunHooks): Promise<void> {
   await lockWait(businessId, async () => {
-    const out = await runTransact(tx => {
+    const out = await runTransact(businessId, tx => {
       const run = tx.run(businessId, runId);
       if (!run) return { err: ["NOT_FOUND", 404, "That run doesn't exist."] as const };
       if (run.status === "running" && tx.steps(runId).some(s => s.status === "running")) {
@@ -983,6 +985,7 @@ export async function resumeRun(businessId: string, runId: string, hooks?: RunHo
       if (tx.business(businessId)?.kill_switch) return { err: ["KILL_SWITCH_ACTIVE", 409, "The kill switch is on."] as const };
       tx.patchRun(businessId, runId, { status: "running", pause_reason: null }, { status: ["paused", "interrupted"] });
       tx.appendEvent(businessId, "owner", "run.resumed", `run:${runId}`, "running", runId, { from: latest.status });
+      tx.enqueueAdvance(businessId, runId);
       return { ok: true as const };
     });
     if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);
@@ -991,7 +994,7 @@ export async function resumeRun(businessId: string, runId: string, hooks?: RunHo
 
 /** The kill switch: the flag is persisted AT ONCE (no business lock); runs and approvals are then finalised. */
 export async function setKillSwitch(businessId: string, active: boolean): Promise<{ finalised: boolean }> {
-  await runTransact(tx => {
+  await runTransact(businessId, tx => {
     const changed = tx.setKillSwitch(businessId, active);
     tx.appendEvent(businessId, "owner", active ? "kill_switch.on" : "kill_switch.off", `business:${businessId}`, changed ? "applied" : "no_change", businessId, {});
     // M5 (§14): the kill switch also disarms any armed testnet batch, at once.
@@ -999,7 +1002,7 @@ export async function setKillSwitch(businessId: string, active: boolean): Promis
   });
   if (!active) return { finalised: true };
   try {
-    await withBusinessLock(businessId, () => runTransact(tx => {
+    await withBusinessLock(businessId, () => runTransact(businessId, tx => {
       for (const run of tx.runs(businessId).filter(r => ACTIVE_RUN_STATUSES.includes(r.status))) finaliseCancel(tx, run, "KILL_SWITCH_ACTIVE", "owner");
       for (const a of tx.approvals(businessId).filter(x => x.status === "pending" || (x.status === "approved" && !x.consumed_at))) {
         if (tx.patchApproval(businessId, a.id, ["pending", "approved"], { status: "invalidated", invalidated_reason: "KILL_SWITCH_ACTIVE", decided_at: tx.now, decided_by: "system" })) {
@@ -1032,7 +1035,7 @@ export async function armTestnetBatch(businessId: string, input: { batchRef: str
   const total = nearToYocto(input.maxTotalNear);
   if (BigInt(total) <= BigInt(0) || BigInt(total) > BATCH_MAX_TOTAL_YOCTO) throw new ServiceError("VALIDATION_FAILED", 400, "A batch can move more than 0 and at most 0.25 NEAR (the contract's daily cap).");
   await lockWait(businessId, async () => {
-    const out = await runTransact(tx => {
+    const out = await runTransact(businessId, tx => {
       const b = tx.business(businessId);
       if (!b) return { err: ["NOT_FOUND", 404, "Not found."] as const };
       if (b.kill_switch) return { err: ["KILL_SWITCH_ACTIVE", 409, "Switch the kill switch off before arming a testnet batch."] as const };
@@ -1045,7 +1048,7 @@ export async function armTestnetBatch(businessId: string, input: { batchRef: str
 }
 
 export async function disarmTestnetBatch(businessId: string): Promise<void> {
-  await runTransact(tx => {
+  await runTransact(businessId, tx => {
     if (tx.disarmBatches(businessId, "OWNER") > 0) tx.appendEvent(businessId, "owner", "testnet.disarmed", `business:${businessId}`, "disarmed", businessId, { reason: "OWNER" });
   });
 }
@@ -1076,7 +1079,7 @@ export async function requestPaymentRetry(businessId: string, runId: string): Pr
   const av = await getPaymentChain();
   if (!av.ok) throw new ServiceError(av.code, 503, av.message);
   await lockWait(businessId, async () => {
-    const out = await runTransact(tx => {
+    const out = await runTransact(businessId, tx => {
       const run = tx.run(businessId, runId);
       if (!run) return { err: ["NOT_FOUND", 404, "That run doesn't exist."] as const };
       const e = retryEligibility(tx, run);
@@ -1095,6 +1098,7 @@ export async function requestPaymentRetry(businessId: string, runId: string): Pr
       }, { status: ["failed"] });
       if (!ok) return { err: ["RETRY_NOT_ALLOWED", 409, "The run changed; try again."] as const };
       tx.appendEvent(businessId, "owner", "payment.retry_requested", `attempt:${e.attemptId}`, "running", runId, { mode: e.mode, batch: batch.batch_ref });
+      tx.enqueueAdvance(businessId, runId);
       return { ok: true as const };
     });
     if ("err" in out && out.err) throw new ServiceError(out.err[0], out.err[1], out.err[2]);
@@ -1103,14 +1107,14 @@ export async function requestPaymentRetry(businessId: string, runId: string): Pr
 
 /** Pause or resume one approved agent (D4). Resuming lets runs paused for that agent continue. */
 export async function setAgentPaused(businessId: string, key: AgentKey, paused: boolean): Promise<void> {
-  const ok = await runTransact(tx => {
+  const ok = await runTransact(businessId, tx => {
     const changed = paused ? tx.setAgentStatus(businessId, key, "approved", "paused") : tx.setAgentStatus(businessId, key, "paused", "approved");
     if (changed) tx.appendEvent(businessId, "owner", paused ? "agent.paused" : "agent.resumed", `agent:${key}`, paused ? "paused" : "approved", businessId, {});
     return changed;
   });
   if (!ok) throw new ServiceError("INVALID_TRANSITION", 409, paused ? "Only an approved agent can be paused." : "This agent isn't paused.");
   if (!paused) {
-    await lockWait(businessId, () => runTransact(tx => {
+    await lockWait(businessId, () => runTransact(businessId, tx => {
       for (const run of tx.runs(businessId).filter(r => r.status === "paused" && r.pause_reason === `agent_paused:${key}`)) {
         if (tx.patchRun(businessId, run.id, { status: "running", pause_reason: null }, { status: ["paused"] })) {
           tx.appendEvent(businessId, "owner", "run.resumed", `run:${run.id}`, "running", run.id, { from: "paused", agent: key });

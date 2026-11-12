@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { registerPaymentChainFactory, type ChainAvailability, type ChainPrecheck, type ChainVerdict, type PaymentChain, type ReconcileOutcome } from "@/lib/runs/payment-port";
 import { APPROVED_ACCOUNTS, EXPECTED_TREASURY_CODE_HASH, NEAR_DAILY_CAP_YOCTO, NEAR_MAX_PER_TX_YOCTO, readChainConfig, type ChainConfig } from "./config";
 import { acquireSignerLock } from "./instance-lock";
+import { isSharedStore } from "@/lib/kv";
 import { AgentKeyError, loadAgentKey, type AgentKeyHandle } from "./keys";
 import { chainReaderFromRpc, type ChainReader } from "./port";
 import { checkReadiness, checkRecipient } from "./readiness";
@@ -70,9 +71,9 @@ export function createPaymentChain(deps: { chain: ChainReader; rpc: Pick<RpcClie
       return nearPolicyVersionOf(await chain.getPolicy(config.treasury));
     },
 
-    async sign({ requestId, recipient, amountYocto, mode = "new", previousExpiresAfterHeight }) {
+    async sign({ requestId, recipient, amountYocto, mode = "new", previousExpiresAfterHeight, minNonceExclusive }) {
       try {
-        const base = { requestId, recipient, amountYocto };
+        const base = { requestId, recipient, amountYocto, minNonceExclusive: minNonceExclusive ?? null };
         if (mode === "resubmit_after_expiry" && typeof previousExpiresAfterHeight !== "number") {
           return { ok: false, code: "RESUBMIT_NOT_ALLOWED", detail: "the earlier transaction's validity window is unknown", transient: false };
         }
@@ -145,8 +146,12 @@ async function build(): Promise<ChainAvailability> {
   try { key = await loadAgentKey(); }
   catch (e) { return { ok: false, code: e instanceof AgentKeyError ? e.code : "AGENT_KEY_INVALID", message: "The Finance Agent's restricted signing key isn't set up on this server." }; }
   if (key.publicKey !== APPROVED_ACCOUNTS.agentPublicKey) return { ok: false, code: "KEY_MISMATCH", message: "The configured signing key isn't the approved restricted Finance Agent key." };
-  const lock = acquireSignerLock();
-  if (!lock.ok) return { ok: false, code: lock.code, message: lock.message };
+  // Locally: one signing server per machine (lock file). Hosted: every instance may sign, one at a time,
+  // coordinated by the shared signer lease (src/lib/runs/signer-lease.ts) instead.
+  if (!isSharedStore()) {
+    const lock = acquireSignerLock();
+    if (!lock.ok) return { ok: false, code: lock.code, message: lock.message };
+  }
   const rpc = createRpcClient({ url: c.rpcUrl });
   return { ok: true, chain: createPaymentChain({ chain: chainReaderFromRpc(rpc), rpc, config: c, agentKey: key }) };
 }

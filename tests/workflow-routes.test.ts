@@ -27,7 +27,8 @@ import { POST as generate } from "@/app/api/w/[id]/workflows/generate/route";
 import { PATCH as patchWorkflow } from "@/app/api/w/[id]/workflows/[wid]/route";
 import { POST as approveWorkflow } from "@/app/api/w/[id]/workflows/[wid]/approve/route";
 import { POST as discard } from "@/app/api/w/[id]/workflows/[wid]/discard/route";
-import { FileDevStore, discoveryRepository, setDiscoveryRepository } from "@/lib/discovery/store";
+import { discoveryRepository, setDiscoveryRepository } from "@/lib/discovery/store";
+import { makeTestStore } from "./helpers/store";
 import { resetAiForTests } from "@/lib/ai";
 import { blockedFetch } from "./setup";
 import { RESTAURANT_HERO, referenceAnswer } from "./helpers/reference";
@@ -44,7 +45,7 @@ const wbody = async (r: Response) => (await r.json()) as WBody;
 const dbody = async (r: Response) => (await r.json()) as { view: DiscoveryView };
 
 beforeEach(() => {
-  setDiscoveryRepository(new FileDevStore(dir));
+  setDiscoveryRepository(makeTestStore(dir));
   process.env.AI_PROVIDER = "mock";
   resetAiForTests();
   h.jar.clear();

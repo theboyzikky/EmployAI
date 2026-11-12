@@ -68,7 +68,7 @@ describe("attack demonstration", () => {
     const { runId } = await startRun(businessId, { workflowId: workflow.id, scenario: "standard", idempotencyKey: "attack-demo-1", mode: "testnet", confirmRealTransactions: true });
 
     // The injected supplier quote arrives in the run's data (untrusted text from outside).
-    await runTransact(tx => {
+    await runTransact(businessId, tx => {
       const run = tx.run(businessId, runId)!;
       const snap = run.demo_snapshot as { suppliers: Array<Record<string, unknown>> };
       snap.suppliers.push({ name: "Scam Supplier (demo)", approved: false, item: "Rice", price_per_unit_ngn: 900, delivery_days: 0, prior_payments: 0, available_today: true,
@@ -77,7 +77,7 @@ describe("attack demonstration", () => {
     });
 
     for (let i = 0; i < 20; i++) { const r = await advanceRun(businessId, runId); if (!r.more && !r.settling) break; }
-    const s = await runRead(tx => ({
+    const s = await runRead(businessId, tx => ({
       run: tx.run(businessId, runId)!, steps: tx.steps(runId), decisions: tx.decisions(businessId), approvals: tx.approvals(businessId),
       attempts: tx.attempts(businessId), ledger: tx.ledger(businessId), events: tx.events(businessId).filter(e => e.correlation_id === runId),
     }));

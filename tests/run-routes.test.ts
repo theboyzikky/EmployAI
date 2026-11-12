@@ -26,6 +26,7 @@ import { PATCH as patchAgent } from "@/app/api/w/[id]/team/[agentKey]/route";
 import { hashOwnerToken, setDiscoveryRepository } from "@/lib/discovery/store";
 import { runTransact } from "@/lib/runs/repo";
 import { blockedFetch } from "./setup";
+import { storeDigest } from "./helpers/store";
 import { readyRestaurant, tempStore, type FixtureOptions } from "./helpers/run-fixture";
 
 const ORIGIN = "http://localhost:3101";
@@ -57,7 +58,7 @@ async function runToEnd(b: string, runId: string): Promise<Body> {
   }
   throw new Error("did not settle");
 }
-const sha = (f: string) => createHash("sha256").update(readFileSync(f)).digest("hex");
+const sha = (f: string) => storeDigest(f);
 
 describe("start → advance → end, through the routes", () => {
   test("start needs an Idempotency-Key; it persists the run and executes nothing; a repeat returns the same run", async () => {
@@ -126,7 +127,7 @@ describe("GET is strictly read-only (D11)", () => {
   test("a stale lease is shown as interrupted (detected) without being persisted", async () => {
     const { businessId, workflow, file } = await env();
     const runId = (await json(await startReq(businessId, workflow.id, "quiet_day"))).run!.run.id;
-    await runTransact(tx => {
+    await runTransact(businessId, tx => {
       tx.insertStep({ run_id: runId, business_id: businessId, step_id: "trigger", step_type: "trigger", agent_key: "system", requester: "runner", task_id: null, status: "running", attempt: 1,
         input: null, output: null, reasoning: null, tools_used: [], reads: [], writes: [], simulated: [], started_at: tx.now, ended_at: null, duration_ms: null, error: null });
       tx.patchRun(businessId, runId, { lease_expires_at: new Date(Date.now() - 1000).toISOString() });

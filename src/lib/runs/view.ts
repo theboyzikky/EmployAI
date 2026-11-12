@@ -2,6 +2,8 @@ import "server-only";
 // M4 · Read-only views for the Runs tab. Built with runRead (a private copy of the stored state):
 // nothing here can execute a step or persist a transition (D11). Expired approvals and stale leases
 // are SHOWN as such and persisted by the next mutating call.
+import { isSharedStore } from "@/lib/kv";
+import { limits as hostedLimits } from "@/lib/hosted/rate-limit";
 import { AGENT_TEMPLATES } from "@/lib/catalogue/catalogue";
 import { causeOf, playbookByKey } from "@/lib/discovery/playbooks";
 import type { BusinessRecord } from "@/lib/discovery/store";
@@ -47,7 +49,7 @@ function addressesOf(b: BusinessRecord): AddressedItem[] {
 }
 
 export async function buildRunsView(b: BusinessRecord): Promise<RunsView> {
-  return runRead(tx => {
+  return runRead(b.id, tx => {
     const business = tx.business(b.id)!;
     const workflows = tx.workflows(b.id);
     const current = workflows.filter(w => w.status === "approved").sort((x, y) => y.version - x.version)[0] ?? null;
@@ -74,13 +76,15 @@ export async function buildRunsView(b: BusinessRecord): Promise<RunsView> {
       testnet: {
         batch: batch ? { ref: batch.batch_ref, maxPayments: batch.max_payments, paymentsUsed: batch.payments_used, maxTotalNear: nearText(batch.max_total_yocto), usedNear: nearText(batch.yocto_used), expiresAt: batch.expires_at } : null,
         recipients: restaurantDemoScenario().suppliers.filter(s => s.approved && s.testnet_account).map(s => ({ supplier: s.name, account: s.testnet_account! })),
+        hostedDemo: isSharedStore(),
+        runsPerDay: isSharedStore() ? hostedLimits().testnetPerWorkspace.max : null,
       },
     };
   });
 }
 
 export async function buildRunView(b: BusinessRecord, runId: string): Promise<RunView | null> {
-  return runRead(tx => runViewFrom(tx, b.id, runId));
+  return runRead(b.id, tx => runViewFrom(tx, b.id, runId));
 }
 
 function runViewFrom(tx: RunTx, businessId: string, runId: string): RunView | null {

@@ -40,5 +40,9 @@ Next.js 16 · TypeScript · Upstash Redis (shared store, compare-and-set commits
 | NEAR testnet payouts with the 5 safety layers | Implemented; **2 payouts verified on testnet** |
 | WhatsApp templates (beyond 24 h), proactive follow-ups, website chat, LinkedIn/X/TikTok/YouTube posting | Planned |
 
-## Deployment (what is left)
-The repository isn't connected to Vercel yet, and the operator's secrets are needed. Steps: `docs/deployment/vercel-upstash.md`. In short: import the GitHub repo in Vercel (branch `hosted-demo-redis`), add Upstash Redis from the Vercel Marketplace, set `APP_ENCRYPTION_KEY`, `EMPLOYAI_PUBLIC_URL`, `AI_PROVIDER=nearai`, `NEAR_AI_API_KEY`, `CRON_SECRET`, `EMPLOYAI_WORKER_SECRET` (and optionally `QSTASH_TOKEN`), then deploy.
+## Deployment status (checked 2026-11-12)
+- Deployed on Vercel from `hosted-demo-redis`: https://employ-ai-eight.vercel.app/ (homepage 200).
+- Upstash Redis works in production: a session created through the API, plus a message, persisted and reloaded on a later request; another browser gets 404 (owner-only); unsigned webhooks get 401.
+- **NEAR AI is not yet active in production:** `AI_PROVIDER=nearai` is set, but the server reports "NEAR AI calls are not approved", so discovery returns `AI_UNAVAILABLE` (it fails closed and never falls back to mock AI). The operator must set `NEAR_AI_CALLS_APPROVED=true` (plus `NEAR_AI_API_KEY`, `NEAR_AI_MAX_CALLS`, `NEAR_AI_MAX_USD_PER_DAY` if missing) in Vercel and redeploy.
+
+Setup steps: `docs/deployment/vercel-upstash.md`.

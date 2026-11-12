@@ -1,5 +1,9 @@
 # EmployAI
 
+**Live demo:** https://employ-ai-eight.vercel.app/ · **Code:** https://github.com/theboyzikky/EmployAI (branch `hosted-demo-redis`) · **Submission:** [docs/submission/SUBMISSION.md](docs/submission/SUBMISSION.md)
+
+**Tell EmployAI what your business needs. It builds and operates the AI workforce that does it.** The owner describes the business in plain words; EmployAI (reasoning with NEAR AI) proposes AI employees with clear responsibilities, restrictions and escalation rules; the owner approves the team, connects accounts by external sign-in and grants each employee explicit permissions; the employees then work in the background (answering customer enquiries from the owner's own catalogue, capturing orders for the owner to confirm, escalating complaints), and the owner monitors everything in the Inbox and Activity, with approvals and a kill switch. Messaging integrations are implemented but **tested only with simulated providers**; see [Real vs simulated](#real-vs-simulated).
+
 A small-business owner describes their business in plain language. EmployAI's consultant asks follow-up questions, proposes a team of AI agents, and builds a workflow that runs only after the owner approves it. The Finance Agent can pay suppliers **for real on NEAR testnet**, but only through a policy-enforcing treasury contract, with a restricted key, a deterministic security check and the owner's approval for every payment.
 
 Built at NEAR HACKATHON (2026-11-03 to 2026-11-14). Tracks: `business` (primary), `security` (secondary).
@@ -58,7 +62,7 @@ Requirements: Node.js ≥ 20.9 (built with 26.13.0) and npm. No NEAR keys or AI 
 7. **Do:** switch on the **kill switch** in the header while a run waits. **See:** the run is cancelled and the approval invalidated.
 8. **Do:** open **Ledger** and **Security**. **See:** the ledger keeps real and simulated rows apart; the Security tab shows the shared blocklist (with the labelled `scam-supplier` fixture and its evidence hash) and a report form. On the Ledger tab, **Publish** creates a public link (`/ledger/<random>`). It's private by default and shows only verified on-chain payouts: no business amounts, simulated runs or business details. **Make private** turns the link off for good.
 9. **Do:** `npm run demo:attack`. **See:** the log below: the injected instruction, **BLOCK** with three reasons, no approval, 0 signatures, 0 transactions, no transaction hash.
-10. **Do:** `npm test`. **See:** 577 tests pass. `npm run test:shared` runs the same suites against the hosted demo's shared store (576 pass; 1 check that reads the local file is skipped), including concurrency tests across simulated server instances. All network access is blocked in tests; the NEAR chain is faked, so no keys are used.
+10. **Do:** `npm test`. **See:** 664 tests pass. `npm run test:shared` runs the same suites against the hosted demo's shared store, including concurrency tests across simulated server instances. All network access is blocked in tests; the NEAR chain is faked, so no keys are used.
 11. **Do:** open the verified payout on [NEAR Rocks](https://testnet.near.rocks/tx/AMBpt4jkeHAy9iaymQcv2cRJz84dXaUaADAEMe3wNsKP). **See:** signer `finance-agent.employai-demo.testnet`, `request_payment`, the 0.031 NEAR transfer to supplier-1, `on_payout` returning `true`, and the `payout_completed` event.
 12. **Optional, real testnet payment** (needs your own accounts, contract and restricted key; see [scripts/m5/README.md](scripts/m5/README.md)): set the NEAR variables in `.env` (names only in `.env.example`), arm a batch on the Runs page, pick **NEAR testnet (real transaction)**, run, then approve. **See:** "Paid · verified on NEAR testnet" with the hash, and a verified ledger row.
 

@@ -86,3 +86,4 @@ desktop.ini
 # Installed locally as development tools; not redistributed with EmployAI.
 # Reinstall with: npx skills add near/agent-skills   (pinned in skills-lock.json)
 .claude/skills/
+docs/submission/employai-film.webm

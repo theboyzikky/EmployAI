@@ -102,6 +102,11 @@ export async function respondToInbound(businessId: string, convId: string, msgId
   const draft = (status: ConvMessage["status"], note: string | null): ConvMessage => ({ id: randomUUID(), direction: "out", text, at: now(), status, by: employeeId, provider_id: null, in_reply_to: msgId, checks, note: note ? `${note} Written by ${writtenBy}.` : `Written by ${writtenBy}.` });
   const decide = (s: DevState, x: Conversation) => {
     x.intent = p.intent; x.updated_at = now();
+    if (p.order?.product) {
+      // A basic order: captured for the owner to confirm. EmployAI never confirms it on the business's behalf.
+      x.order = { product: p.order.product.slice(0, 120), quantity: p.order.quantity ?? null, details: p.order.details?.slice(0, 240) ?? null, status: "captured", at: now() };
+      audit(s, businessId, `agent:${employeeId}`, "order.captured", `conversation:${x.id}`, "captured", x.id, { product: x.order.product, quantity: x.order.quantity });
+    }
     if (p.lead && !x.lead) {
       // Coordinate: a sales employee (if the workforce has one) is told about the lead.
       const sales = s.businesses[businessId]?.workforce?.employees.find(e => e.status === "active" && e.skills.some(k => k.id === "capture_lead"));

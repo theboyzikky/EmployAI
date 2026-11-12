@@ -91,6 +91,7 @@ export function InboxWorkspace({ initial }: { initial: InboxView }) {
                   <span className="mt-1 flex flex-wrap gap-1">
                     {c.status === "needs_owner" && <span className="pill pill-warn">Needs you</span>}
                     {c.pending > 0 && <span className="pill pill-accent">{c.pending} to approve</span>}
+                    {c.order && <span className="pill pill-accent">Order to confirm</span>}
                     {c.lead && <span className="pill pill-ok">Lead</span>}
                     {c.status === "resolved" && <span className="pill">Resolved</span>}
                   </span>
@@ -109,6 +110,7 @@ export function InboxWorkspace({ initial }: { initial: InboxView }) {
               </div>
               <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => post("status", { action: "status", conversation_id: conv.id, status: conv.status === "resolved" ? "open" : "resolved" })}>{conv.status === "resolved" ? "Reopen" : "Mark resolved"}</button>
             </div>
+            {conv.order && <p className="notice mt-3"><span className="font-semibold text-ink">Order captured, waiting for your confirmation:</span> {conv.order.quantity ? `${conv.order.quantity} × ` : ""}{conv.order.product}{conv.order.details ? ` · ${conv.order.details}` : ""}. Confirm it with the customer before treating it as an order.</p>}
             {conv.escalation && conv.status === "needs_owner" && <p className="notice mt-3">Waiting for you: {conv.escalation.reason}</p>}
             {!conv.windowOpen && <p className="notice mt-3">This customer last wrote more than 24 hours ago: {CHANNEL[conv.channel]} only allows approved message templates now, so replies can&apos;t be sent from here.</p>}
             <ul className="mt-3 space-y-2">

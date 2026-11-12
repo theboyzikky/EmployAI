@@ -75,7 +75,7 @@ const LABELS: Record<string, string> = {
   "content.cancelled": "Schedule cancelled", "content.published": "Post published", "content.failed": "Publication failed", "content.needs_attention": "Publication needs attention",
   "action.prepared": "Action recorded", "action.sending": "Delivering", "action.done": "Delivered (confirmed by the platform)", "action.rejected": "Refused by the platform", "action.unknown": "Outcome unknown — verifying", "action.escalated": "Escalated to the owner", "action.aborted": "Stopped before sending", "action.reconciled": "Outcome confirmed by reconciliation", "action.retry_scheduled": "Retry scheduled", "action.refused": "Action refused (permissions)",
   "event.received": "Event received", "event.unrouted": "Event needs an owner decision", "event.awaiting_automation": "Event kept for the owner", "task.dead": "Background task failed",
-  "kill_switch.on": "Kill switch ON", "kill_switch.off": "Kill switch off", "run.started": "Run started", "payment.confirmed": "NEAR testnet payment confirmed",
+  "order.captured": "Order captured (owner to confirm)", "lead.identified": "Lead identified", "message.received": "Customer message received", "reply.drafted": "Reply drafted for approval", "reply.sent": "Reply sent", "conversation.escalated": "Conversation escalated to the owner", "kill_switch.on": "Kill switch ON", "kill_switch.off": "Kill switch off", "run.started": "Run started", "payment.confirmed": "NEAR testnet payment confirmed",
 };
 
 export type ActivityView = {

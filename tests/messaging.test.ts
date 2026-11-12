@@ -88,6 +88,20 @@ describe("customer messages are handled by the support employee, in the backgrou
     expect(sent).toHaveLength(1);
   });
 
+  test("a basic order is captured for the owner to confirm, answered automatically, and never claimed as confirmed", async () => {
+    const f = await shop();
+    await setMessagingSettings(f.b.id, { mode: "auto" });
+    await f.customer("Hi, I'd like to order 2 of the Emerald wrap dress in size 10 please");
+    await f.run(); await f.run();
+    const [c] = await f.convs();
+    expect(c).toMatchObject({ intent: "order", order: { product: "Emerald Wrap Dress", quantity: 2, details: "size 10", status: "captured" } });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toMatch(/owner will confirm/);
+    expect(sent[0].text).toContain("₦25,000");
+    const { checkReply } = await import("@/lib/messaging/model");
+    expect(checkReply("Great news, your order is confirmed!", { products: [], knowledge: "" }).find(x => x.code === "NO_CONFIRMATION")!.passed).toBe(false);
+  });
+
   test("complaints are escalated to the owner and never answered automatically", async () => {
     const f = await shop();
     await setMessagingSettings(f.b.id, { mode: "auto" });

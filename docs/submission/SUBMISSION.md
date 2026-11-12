@@ -3,8 +3,8 @@
 **Tell EmployAI what your business needs. It builds and operates the AI workforce that gets the work done.**
 
 - **Code:** https://github.com/theboyzikky/employai (branch `hosted-demo-redis`)
-- **Live app:** not deployed yet. See "Deployment" below. Add the Vercel URL here once it is live.
-- **Film (≈98 s, 1890×1058, WebM/VP9 + Opus):** `docs/submission/employai-film.webm` (not in git, because it is large; upload it with the submission). The source is `public/video/film.html`.
+- **Live app:** https://employ-ai-eight.vercel.app/
+- **Film (≈98 s, 1890×1058, WebM/VP9 + Opus, cinematic score):** `docs/submission/employai-film.webm` (not in git, because it is large; upload it with the submission). The source is `public/video/film.html`.
 
 ## The problem
 Small businesses lose hours to repetitive work: answering the same customer questions, taking orders, posting, chasing payments. Today's options are a stack of single-purpose tools or chatbots that need setup and never really *do* the work, and handing AI real power (accounts, money) feels unsafe.
